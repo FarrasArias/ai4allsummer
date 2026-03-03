@@ -3,6 +3,7 @@
 from image_v1 import DEFAULT_MODEL as IMAGE_DEFAULT_MODEL
 from vibe_coding import DEFAULT_MODEL as VIBE_DEFAULT_MODEL, VibeCodingChat
 from web_chat import DEFAULT_MODEL as WEB_DEFAULT_MODEL, WebChatSession
+from image_gen import DEFAULT_ENHANCER_MODEL as IMGGEN_DEFAULT_MODEL, ImageGenEngine
 
 # Load model configuration from external config file
 def _load_model_config():
@@ -16,7 +17,8 @@ def _load_model_config():
             "chat": {"fast": "qwen2.5:14b", "thinking": "qwen3:14b", "default": "qwen3:1.7b"},
             "vibe_coding": {"default": "qwen2.5-coder:7b"},
             "image": {"default": "qwen2.5vl:7b"},
-            "web": {"default": "qwen2.5:7b"}
+            "web": {"default": "qwen2.5:7b"},
+            "image_gen": {"default": "qwen2.5:7b"}
         }
 
 # Defer loading until after imports
@@ -94,6 +96,10 @@ _VIBE_ENGINES_LOCK = threading.Lock()
 _WEB_SESSIONS: dict[str, WebChatSession] = {}
 _WEB_SESSIONS_LOCK = threading.Lock()
 
+# Per-model Image generation engines (prompt enhancer model)
+_IMGGEN_ENGINES: dict[str, ImageGenEngine] = {}
+_IMGGEN_ENGINES_LOCK = threading.Lock()
+
 
 def _get_chat_engine(model: str) -> OllamaChat:
     """
@@ -130,6 +136,18 @@ def _get_web_session(model: str) -> WebChatSession:
             sess = WebChatSession(model=model)
             _WEB_SESSIONS[model] = sess
         return sess
+
+
+def _get_imggen_engine(model: str) -> ImageGenEngine:
+    """
+    Return an ImageGenEngine for the requested enhancer model.
+    """
+    with _IMGGEN_ENGINES_LOCK:
+        engine = _IMGGEN_ENGINES.get(model)
+        if engine is None:
+            engine = ImageGenEngine(enhancer_model=model)
+            _IMGGEN_ENGINES[model] = engine
+        return engine
 
 
 def _ensure_power_thread():
@@ -280,6 +298,7 @@ def get_mode_defaults():
         "vibe_coding": info(config.get("vibe_coding", {}).get("default", VIBE_DEFAULT_MODEL)),
         "image": info(config.get("image", {}).get("default", IMAGE_DEFAULT_MODEL)),
         "web": info(config.get("web", {}).get("default", WEB_DEFAULT_MODEL)),
+        "image_gen": info(config.get("image_gen", {}).get("default", IMGGEN_DEFAULT_MODEL)),
     }
 
 
@@ -347,6 +366,9 @@ def chat(
                 "done": True,
                 "inference_time_ms": inference_time_ms,
                 "energy_wh": _latest_prompt_Wh,
+                "input_tokens": engine._last_prompt_eval_count,
+                "output_tokens": engine._last_eval_count,
+                "user_prompt_tokens": engine._last_user_prompt_tokens,
             }
             yield f"data: {json.dumps(done_payload)}\n\n".encode("utf-8")
 
@@ -477,6 +499,86 @@ def reset_web(model: str = Form(...)):
 
     session = _get_web_session(model)
     session.reset()
+
+    _session_total_Wh = 0.0
+    _latest_prompt_Wh = 0.0
+    _calculated_accumulator = 0.0
+
+    return {"ok": True}
+
+
+# -----------------------------
+# Image generation (SD WebUI + Ollama prompt enhancement)
+# -----------------------------
+@app.post("/api/image-gen/generate")
+def image_gen_endpoint(
+    prompt: str = Form(...),
+    model: str = Form(...),
+    enhance: str = Form("true"),
+    negative_prompt: str = Form(""),
+    width: int = Form(512),
+    height: int = Form(512),
+    steps: int = Form(25),
+    cfg_scale: float = Form(7.0),
+):
+    """
+    Generate an image via local Stable Diffusion WebUI API.
+    `model` is the Ollama model used for prompt enhancement.
+    Returns JSON with base64 image and metadata.
+    """
+    global _latest_chat_model
+
+    _ensure_power_thread()
+    _llm_running_flag["mode"] = "Chat"
+    _latest_chat_model = model
+
+    engine = _get_imggen_engine(model)
+    do_enhance = enhance.lower() in ("true", "1", "yes")
+
+    try:
+        result = engine.generate(
+            prompt=prompt,
+            negative_prompt=negative_prompt or None,
+            width=width,
+            height=height,
+            steps=steps,
+            cfg_scale=cfg_scale,
+            enhance=do_enhance,
+        )
+        return {
+            "ok": True,
+            "image_b64": result["image_b64"],
+            "prompt_used": result["prompt_used"],
+            "original_prompt": result["original_prompt"],
+            "parameters": result["parameters"],
+        }
+    except ConnectionError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=503)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    finally:
+        _llm_running_flag["mode"] = "None"
+
+
+@app.get("/api/image-gen/status")
+def image_gen_status():
+    """Check if the SD WebUI API is reachable and list available SD models."""
+    engine = _get_imggen_engine(IMGGEN_DEFAULT_MODEL)
+    available = engine.sd_available()
+    sd_models = engine.get_sd_models() if available else []
+    return {
+        "sd_available": available,
+        "sd_models": sd_models,
+    }
+
+
+@app.post("/api/image-gen/reset")
+def reset_image_gen(model: str = Form(...)):
+    """Reset ImageGenEngine history for the given model."""
+    global _session_total_Wh, _latest_prompt_Wh, _calculated_accumulator
+
+    engine = _get_imggen_engine(model)
+    engine.reset()
 
     _session_total_Wh = 0.0
     _latest_prompt_Wh = 0.0

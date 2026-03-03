@@ -200,7 +200,8 @@ export default function ModelManagerPane({
                       <div style={{ display: "grid", gap: 4 }}>
                           {renderModeRow("Chat (general)", "chat")}
                           {renderModeRow("Vibe Coding", "vibe_coding")}
-                          {renderModeRow("Image", "image")}
+                          {renderModeRow("Image Analysis", "image")}
+                          {renderModeRow("Image Generation", "image_gen")}
                           {renderModeRow("Web", "web")}
                       </div>
                   ) : (

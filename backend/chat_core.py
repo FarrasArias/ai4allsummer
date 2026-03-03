@@ -40,6 +40,11 @@ class OllamaChat:
         # Names of loaded files
         self.loaded_files: List[str] = []
 
+        # Token counts from the most recent streaming response
+        self._last_eval_count: int = 0
+        self._last_prompt_eval_count: int = 0
+        self._last_user_prompt_tokens: int = 0
+
         # Verify model is present locally (will raise if missing)
         try:
             ollama.show(self.model)
@@ -357,6 +362,7 @@ class OllamaChat:
         self.conversation_history.append(
             {"role": "user", "content": user_message}
         )
+        self._last_user_prompt_tokens = self._estimate_tokens(user_message)
         messages = self._build_messages()
 
         full_response = ""
@@ -375,6 +381,10 @@ class OllamaChat:
                 if text:
                     full_response += text
                     yield text
+                # Capture token counts from the final chunk
+                if chunk.get("done"):
+                    self._last_eval_count = chunk.get("eval_count", 0) or 0
+                    self._last_prompt_eval_count = chunk.get("prompt_eval_count", 0) or 0
 
             # On success, record assistant response
             self.conversation_history.append(

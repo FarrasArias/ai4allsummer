@@ -50,6 +50,9 @@ export type ThinkingMode = "fast" | "deep";
 export type InferenceMetrics = {
   inference_time_ms: number;
   energy_wh: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  user_prompt_tokens?: number;
 };
 
 export function streamChat(
@@ -85,6 +88,9 @@ export function streamChat(
           metrics = {
             inference_time_ms: payload.inference_time_ms,
             energy_wh: payload.energy_wh ?? 0,
+            input_tokens: payload.input_tokens,
+            output_tokens: payload.output_tokens,
+            user_prompt_tokens: payload.user_prompt_tokens,
           };
           onComplete?.(metrics);
         }
@@ -237,7 +243,7 @@ export async function resetChatSession(model: string) {
   return res.json();
 }
 
-export type ModeKey = "chat" | "vibe_coding" | "image" | "web";
+export type ModeKey = "chat" | "vibe_coding" | "image" | "web" | "image_gen";
 
 export type ModeInfo = {
   default: string;
@@ -290,5 +296,56 @@ export async function resetWeb(model: string) {
   const body = new FormData();
   body.append("model", model);
   const res = await fetch(`${API_BASE}/api/web/reset`, { method: "POST", body });
+  return res.json();
+}
+
+// Image generation (SD WebUI + Ollama prompt enhancement)
+export type ImageGenParams = {
+  prompt: string;
+  model: string;
+  enhance?: boolean;
+  negative_prompt?: string;
+  width?: number;
+  height?: number;
+  steps?: number;
+  cfg_scale?: number;
+};
+
+export type ImageGenResult = {
+  ok: boolean;
+  image_b64?: string;
+  prompt_used?: string;
+  original_prompt?: string;
+  parameters?: Record<string, any>;
+  error?: string;
+};
+
+export async function generateImage(opts: ImageGenParams): Promise<ImageGenResult> {
+  const body = new FormData();
+  body.append("prompt", opts.prompt);
+  body.append("model", opts.model);
+  body.append("enhance", String(opts.enhance ?? true));
+  if (opts.negative_prompt) body.append("negative_prompt", opts.negative_prompt);
+  if (opts.width) body.append("width", String(opts.width));
+  if (opts.height) body.append("height", String(opts.height));
+  if (opts.steps) body.append("steps", String(opts.steps));
+  if (opts.cfg_scale) body.append("cfg_scale", String(opts.cfg_scale));
+
+  const res = await fetch(`${API_BASE}/api/image-gen/generate`, { method: "POST", body });
+  return res.json();
+}
+
+export async function getImageGenStatus(): Promise<{
+  sd_available: boolean;
+  sd_models: string[];
+}> {
+  const res = await fetch(`${API_BASE}/api/image-gen/status`);
+  return res.json();
+}
+
+export async function resetImageGen(model: string) {
+  const body = new FormData();
+  body.append("model", model);
+  const res = await fetch(`${API_BASE}/api/image-gen/reset`, { method: "POST", body });
   return res.json();
 }

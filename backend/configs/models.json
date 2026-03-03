@@ -12,5 +12,8 @@
   },
   "web": {
     "default": "qwen2.5:7b"
+  },
+  "image_gen": {
+    "default": "qwen2.5:7b"
   }
 }

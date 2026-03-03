@@ -5,6 +5,9 @@ import ModelManagerPane from "./components/ModelManagerPane";
 import VibeCodingPane from "./components/VibeCodingPane";
 import WebChatPane from "./components/WebChatPane";
 import ImageAnalysisPane from "./components/ImageAnalysisPane";
+import ImageGenPane from "./components/ImageGenPane";
+import { TipProvider } from "./components/TipContext";
+import TipsBox from "./components/TipsBox";
 // import AnalyticsPane from "./components/AnalyticsPane";
 import {
   streamPower,
@@ -26,7 +29,7 @@ export default function App() {
   const [lastPromptEnergyPct, setLastPromptEnergyPct] = useState(0);
   const [totalEnergyPct, setTotalEnergyPct] = useState(0);
   const [litresWater, setLitresWater] = useState(0);
-  const [tab, setTab] = useState<"chat" | "vibe" | "web" | "image" | "models">("chat");
+  const [tab, setTab] = useState<"chat" | "vibe" | "web" | "image" | "image_gen" | "models">("chat");
 
   const [latestPromptWh, setLatestPromptWh] = useState<number | null>(null);
   const [sessionTotalWh, setSessionTotalWh] = useState<number | null>(null);
@@ -291,12 +294,15 @@ export default function App() {
     const webModel = modeOverrides.web || modeDefaults?.web?.default;
     const imageModel =
         modeOverrides.image || modeDefaults?.image?.default;
+    const imageGenModel =
+        modeOverrides.image_gen || modeDefaults?.image_gen?.default;
 
     // (optional) chat general override, if you want to use it later
     const chatModeModel =
         modeOverrides.chat || modeDefaults?.chat?.default;
 
     return (
+      <TipProvider>
         <div className={`app-grid ${!showSidebar ? "no-sidebar" : ""}`}>
             {showSidebar && (
                 <aside className="sidebar">
@@ -313,6 +319,7 @@ export default function App() {
                         promptCount={promptMetrics.length}
                         last2AvgWh={last2AvgWh}
                     />
+                    <TipsBox />
                 </aside>
             )}
 
@@ -324,6 +331,7 @@ export default function App() {
             <button onClick={() => setTab("vibe")}>Vibe Coding</button>
             <button onClick={() => setTab("web")}>Web</button>
             <button onClick={() => setTab("image")}>Image</button>
+            <button onClick={() => setTab("image_gen")}>Image Gen</button>
             <button onClick={() => setTab("models")}>Models</button>
           </div>
         </div>
@@ -364,6 +372,8 @@ export default function App() {
 
           {tab === "image" && <ImageAnalysisPane model={imageModel} />}
 
+          {tab === "image_gen" && <ImageGenPane model={imageGenModel} />}
+
           {tab === "models" && (
             <div style={{ overflow: "auto", height: "100%", minHeight: 0 }}>
                       <ModelManagerPane
@@ -392,5 +402,6 @@ export default function App() {
         </div>
       </section>
     </div>
+      </TipProvider>
   );
 }

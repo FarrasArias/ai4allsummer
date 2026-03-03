@@ -102,6 +102,11 @@ export default function ChatHistory({ messages, isStreaming = false, thinkingMod
               <div className="inference-metrics">
                 <span title="Inference time">⏱ {formatTime(m.metrics.inference_time_ms)}</span>
                 <span title="Energy consumption">⚡ {formatEnergy(m.metrics.energy_wh)}</span>
+                {(m.metrics.input_tokens != null || m.metrics.output_tokens != null) && (
+                  <span title="Tokens: user prompt / total context → output">
+                    Tokens: {m.metrics.user_prompt_tokens ?? "?"}/{m.metrics.input_tokens ?? "?"} → {m.metrics.output_tokens ?? "?"}
+                  </span>
+                )}
               </div>
             )}
           </div>

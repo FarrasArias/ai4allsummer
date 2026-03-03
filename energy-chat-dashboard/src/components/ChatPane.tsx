@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import ChatHistory from "./ChatHistory";
 import ChatInput from "./ChatInput";
 import { streamChat, listChats, saveChat, loadChat, getPinnedChats, togglePinnedChat, searchChats, type SearchResult, type InferenceMetrics } from "../api";
+import { useTip } from "./TipContext";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
 
@@ -24,6 +25,8 @@ export default function ChatPane({
     onHistoryChange,
     onModelChange,
 }: Props) {
+    const { showTip } = useTip();
+
     const [messages, setMessages] = useState<Msg[]>([
         { role: "bot", text: "Hi! Ask me anything." },
     ]);
@@ -117,6 +120,14 @@ export default function ChatPane({
                     }
                     return m;
                 });
+            }
+
+            // Demo tip trigger: "Who is Steve?"
+            if (/who is steve/i.test(trimmed)) {
+                showTip(
+                    "Steve is the inventor of Python. He alongside Vanessa Utz co-created the iPhone too.",
+                    20000,
+                );
             }
         } catch (err) {
             console.error(err);
