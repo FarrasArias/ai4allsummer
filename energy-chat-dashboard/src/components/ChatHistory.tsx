@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { InferenceMetrics } from "../api";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
@@ -7,16 +8,12 @@ type Props = {
   messages: Msg[];
   isStreaming?: boolean;
   thinkingMode?: "fast" | "deep";
+  isWaitingForModel?: boolean;
 };
 
-// Format milliseconds to human-readable string
+// Format milliseconds — always show ms for precise research data
 function formatTime(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = (seconds % 60).toFixed(0);
-  return `${minutes}m ${remainingSeconds}s`;
+  return `${ms}ms`;
 }
 
 // Format energy to human-readable string
@@ -35,7 +32,7 @@ const THINKING_MESSAGES = [
   "Composing final answer...",
 ];
 
-export default function ChatHistory({ messages, isStreaming = false, thinkingMode = "fast" }: Props) {
+export default function ChatHistory({ messages, isStreaming = false, thinkingMode = "fast", isWaitingForModel = false }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [thinkingMessageIndex, setThinkingMessageIndex] = useState(0);
 
@@ -66,6 +63,7 @@ export default function ChatHistory({ messages, isStreaming = false, thinkingMod
         <div key={i} className={`chat-bubble ${m.role}`}>
           <div className="bubble">
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 strong: ({ node, ...props }) => (
                   <strong className="markdown-bold" {...props} />
@@ -93,6 +91,16 @@ export default function ChatHistory({ messages, isStreaming = false, thinkingMod
                     <code {...props} />
                   </pre>
                 ),
+                table: ({ node, ...props }) => (
+                  <div className="markdown-table-wrap">
+                    <table className="markdown-table" {...props} />
+                  </div>
+                ),
+                thead: ({ node, ...props }) => <thead {...props} />,
+                tbody: ({ node, ...props }) => <tbody {...props} />,
+                tr: ({ node, ...props }) => <tr {...props} />,
+                th: ({ node, ...props }) => <th className="markdown-th" {...props} />,
+                td: ({ node, ...props }) => <td className="markdown-td" {...props} />,
               }}
             >
               {m.text}
@@ -103,8 +111,9 @@ export default function ChatHistory({ messages, isStreaming = false, thinkingMod
                 <span title="Inference time">⏱ {formatTime(m.metrics.inference_time_ms)}</span>
                 <span title="Energy consumption">⚡ {formatEnergy(m.metrics.energy_wh)}</span>
                 {(m.metrics.input_tokens != null || m.metrics.output_tokens != null) && (
-                  <span title="Tokens: user prompt / total context → output">
-                    Tokens: {m.metrics.user_prompt_tokens ?? "?"}/{m.metrics.input_tokens ?? "?"} → {m.metrics.output_tokens ?? "?"}
+                  <span title="Per-prompt: ~user message tokens → output tokens | Context: full prompt sent to model (grows with history)">
+                    Tokens: ~{m.metrics.user_prompt_tokens ?? "?"} in → {m.metrics.output_tokens ?? "?"} out
+                    <span style={{ opacity: 0.6, marginLeft: 6 }}>(ctx: {m.metrics.input_tokens ?? "?"})</span>
                   </span>
                 )}
               </div>
@@ -119,7 +128,14 @@ export default function ChatHistory({ messages, isStreaming = false, thinkingMod
             className="bubble typing-indicator"
             aria-label="Assistant is responding"
             >
-                {thinkingMode === "deep" ? (
+                {isWaitingForModel ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="model-loading-spinner" style={{ fontSize: 16 }}>⟳</span>
+                    <span style={{ fontSize: 13, fontStyle: "italic", opacity: 0.9 }}>
+                      Loading model into GPU…
+                    </span>
+                  </div>
+                ) : thinkingMode === "deep" ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 13, fontStyle: "italic", opacity: 0.9 }}>
                       {THINKING_MESSAGES[thinkingMessageIndex]}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import ChatHistory from "./ChatHistory";
 import ChatInput from "./ChatInput";
-import { streamChat, listChats, saveChat, loadChat, getPinnedChats, togglePinnedChat, searchChats, type SearchResult, type InferenceMetrics } from "../api";
+import { streamChat, listChats, saveChat, loadChat, getPinnedChats, togglePinnedChat, searchChats, resetChatSession, type SearchResult, type InferenceMetrics } from "../api";
 import { useTip } from "./TipContext";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
@@ -10,6 +10,9 @@ type Props = {
     model?: string; // default chat model (fallback)
     fastModel?: string; // model for fast thinking mode
     deepModel?: string; // model for deep thinking mode
+    autoLoadModel?: boolean; // if true, preload model when activeModel changes
+    modelLoading?: boolean; // true while App.tsx is preloading the model
+    onRequestModelLoad?: (model: string) => void; // tell App to preload a model
     onUserPrompt?: (m: { ts: number; text: string; words: number; chars: number }) => void;
     onHistoryChange?: (history: Msg[]) => void;
     onModelChange?: (model: string) => void;
@@ -21,6 +24,9 @@ export default function ChatPane({
     model,
     fastModel,
     deepModel,
+    autoLoadModel,
+    modelLoading,
+    onRequestModelLoad,
     onUserPrompt,
     onHistoryChange,
     onModelChange,
@@ -40,12 +46,23 @@ export default function ChatPane({
 
     const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("fast");
     const [isStreaming, setIsStreaming] = useState(false);
+    // True between when a prompt is sent and when the first delta token arrives —
+    // during this window the model may still be loading into GPU.
+    const [waitingForFirstDelta, setWaitingForFirstDelta] = useState(false);
 
     // Search state
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [showSearchResults, setShowSearchResults] = useState(false);
+
+    // Select model based on thinking mode:
+    // - fast mode uses fastModel if set, otherwise default model
+    // - deep mode uses deepModel if set, otherwise default model
+    // Declared before effects so they can reference it.
+    const activeModel = thinkingMode === "deep"
+        ? (deepModel || model)
+        : (fastModel || model);
 
     // Load saved chat names and pinned chats on mount
     useEffect(() => {
@@ -58,12 +75,13 @@ export default function ChatPane({
         onHistoryChange?.(messages);
     }, [messages, onHistoryChange]);
 
-    // Select model based on thinking mode:
-    // - fast mode uses fastModel if set, otherwise default model
-    // - deep mode uses deepModel if set, otherwise default model
-    const activeModel = thinkingMode === "deep"
-        ? (deepModel || model)
-        : (fastModel || model);
+    // Auto-load: when the active model changes (thinking mode toggle, or prop change),
+    // tell App to preload it so the GPU is warm before the first prompt.
+    useEffect(() => {
+        if (autoLoadModel && activeModel) {
+            onRequestModelLoad?.(activeModel);
+        }
+    }, [activeModel, autoLoadModel]); // eslint-disable-line react-hooks/exhaustive-deps
 
     async function handleSend(text: string) {
         const trimmed = text.trim();
@@ -95,12 +113,18 @@ export default function ChatPane({
         // Add user message and start streaming response
         setMessages((m) => [...m, { role: "user", text }]);
         setIsStreaming(true);
+        setWaitingForFirstDelta(true); // model may need to load before first token
 
         let acc = "";
+        let firstDeltaReceived = false;
         try {
             const metrics = await streamChat(
                 { prompt: text, model: activeModel, files, thinkingMode },
                 (delta: string) => {
+                    if (!firstDeltaReceived) {
+                        firstDeltaReceived = true;
+                        setWaitingForFirstDelta(false); // model is loaded, now generating
+                    }
                     acc += delta;
                     setMessages((m) => {
                         const withoutBotTail =
@@ -140,6 +164,7 @@ export default function ChatPane({
             ]);
         } finally {
             setIsStreaming(false);
+            setWaitingForFirstDelta(false); // always clean up
         }
     }
 
@@ -218,8 +243,12 @@ export default function ChatPane({
         }
     }
 
-    // Clear chat history (keeps files)
+    // Clear chat history (keeps files) — also resets server-side conversation memory
     function handleClearChat() {
+        // Reset backend history immediately (fire-and-forget; errors are non-fatal)
+        if (activeModel) {
+            resetChatSession(activeModel).catch(() => {/* ignore */});
+        }
         setMessages([{ role: "bot", text: "Hi! Ask me anything." }]);
     }
 
@@ -493,14 +522,32 @@ export default function ChatPane({
             {/* Chat history */}
             <div className="panel" style={{ minHeight: 0 }}>
                 <div className="panel-body" style={{ height: "100%", padding: 0 }}>
-                    <ChatHistory messages={messages} isStreaming={isStreaming} thinkingMode={thinkingMode} />
+                    <ChatHistory
+                        messages={messages}
+                        isStreaming={isStreaming}
+                        thinkingMode={thinkingMode}
+                        isWaitingForModel={waitingForFirstDelta}
+                    />
                 </div>
             </div>
 
             {/* Input */}
             <div className="panel">
                 <div className="panel-body">
-                    <ChatInput onSend={handleSend} />
+                    {/* Auto-load mode: show banner while model preloads */}
+                    {modelLoading && (
+                        <div className="model-loading-banner">
+                            <span className="model-loading-spinner" style={{ fontSize: 20 }}>⟳</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 500, marginBottom: 4 }}>Loading model into GPU…</div>
+                                <div className="model-loading-bar">
+                                    <div className="model-loading-bar-fill" />
+                                </div>
+                            </div>
+                            <span style={{ fontSize: 11, opacity: 0.65 }}>Input enabled when ready</span>
+                        </div>
+                    )}
+                    <ChatInput onSend={handleSend} disabled={isStreaming || !!modelLoading} />
                 </div>
             </div>
         </div>

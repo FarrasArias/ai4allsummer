@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 
-type Props = { onSend: (text: string) => void };
+type Props = { onSend: (text: string) => void; disabled?: boolean };
 
-export default function ChatInput({ onSend }: Props) {
+export default function ChatInput({ onSend, disabled = false }: Props) {
     const [text, setText] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -39,13 +39,14 @@ export default function ChatInput({ onSend }: Props) {
             <textarea
                 ref={textareaRef}
                 className="chat-text"
-                placeholder="Type your message (Shift+Enter for new line)"
+                placeholder={disabled ? "Waiting for model to load…" : "Type your message (Shift+Enter for new line)"}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={handleKeyDown}
                 rows={1}
+                disabled={disabled}
             />
-            <button className="chat-send" type="submit" aria-label="Send message">
+            <button className="chat-send" type="submit" aria-label="Send message" disabled={disabled}>
                 Send
             </button>
         </form>

@@ -37,6 +37,14 @@ export async function createModel(name: string, modelfile: string) {
   return r.json();
 }
 
+/** Preload a model into Ollama GPU memory. Blocks until the model is ready. */
+export async function loadModel(model: string): Promise<{ ok: boolean; error?: string }> {
+  const body = new FormData();
+  body.append("model", model);
+  const res = await fetch(`${API_BASE}/api/models/load`, { method: "POST", body });
+  return res.json();
+}
+
 export async function deleteModels(models: string[]) {
   const r = await fetch(
     `${API_BASE}/api/models?` + new URLSearchParams({ models: models as any }),

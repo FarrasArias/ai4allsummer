@@ -255,6 +255,25 @@ def delete_models(models: List[str]):
     return {"results": results}
 
 
+@app.post("/api/models/load")
+def load_model_endpoint(model: str = Form(...)):
+    """
+    Preload a model into Ollama GPU memory without generating any output.
+    Blocks until the model is fully loaded. Use this to warm up the GPU
+    before the first prompt so the initial response isn't delayed.
+    """
+    try:
+        r = requests.post(
+            "http://localhost:11434/api/generate",
+            json={"model": model, "prompt": "", "keep_alive": -1, "stream": False},
+            timeout=120,
+        )
+        r.raise_for_status()
+        return {"ok": True, "model": model}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 @app.post("/api/models/create")
 def create_model(name: str = Form(...), modelfile: str = Form(...)):
     try:
@@ -379,11 +398,17 @@ def reset_chat(model: str = Form(...)):
     """
     Reset conversation history + loaded documents for the given model,
     and zero out per-session energy counters so the dashboard starts fresh.
+    Safe to call before any prompt has been sent — if no engine exists yet,
+    just zero the counters and return OK without creating a new engine.
     """
     global _session_total_Wh, _latest_prompt_Wh, _calculated_accumulator
 
-    engine = _get_chat_engine(model)
-    engine.reset()
+    # Only reset the engine if one already exists — avoid creating a new one
+    # (which verifies the model via ollama.show and can fail before first prompt)
+    with _CHAT_ENGINES_LOCK:
+        engine = _CHAT_ENGINES.get(model)
+        if engine is not None:
+            engine.reset()
 
     _session_total_Wh = 0.0
     _latest_prompt_Wh = 0.0

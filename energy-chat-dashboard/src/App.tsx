@@ -14,6 +14,7 @@ import {
   saveStudySession,
   resetChatSession,
   getModeDefaults,
+  loadModel,
     type ModeDefaults,
     type ModeKey,
 } from "./api";
@@ -29,7 +30,7 @@ export default function App() {
   const [lastPromptEnergyPct, setLastPromptEnergyPct] = useState(0);
   const [totalEnergyPct, setTotalEnergyPct] = useState(0);
   const [litresWater, setLitresWater] = useState(0);
-  const [tab, setTab] = useState<"chat" | "vibe" | "web" | "image" | "image_gen" | "models">("chat");
+  const [tab, setTab] = useState<"chat" | "vibe" | "web" | "image" | "image_gen" | "settings">("chat");
 
   const [latestPromptWh, setLatestPromptWh] = useState<number | null>(null);
   const [sessionTotalWh, setSessionTotalWh] = useState<number | null>(null);
@@ -42,6 +43,14 @@ export default function App() {
   const [chatKey, setChatKey] = useState(0);
 
   const [currentModel, setCurrentModel] = useState<string | null>(null);
+
+  // Model pre-loading
+  const [autoLoadModel, setAutoLoadModel] = useState<boolean>(() => {
+    try { return localStorage.getItem("ai4all.autoLoadModel") === "true"; }
+    catch { return false; }
+  });
+  const [modelLoading, setModelLoading] = useState(false);
+  const [modelLoadTarget, setModelLoadTarget] = useState<string | null>(null);
 
   // Global chat presets for "Fast think" and "Deep think"
   const [fastModel, setFastModel] = useState<string | null>(() => {
@@ -127,6 +136,27 @@ export default function App() {
         console.error("Failed to load mode defaults", err);
       });
   }, []);
+
+  // Persist autoLoadModel preference
+  useEffect(() => {
+    try { localStorage.setItem("ai4all.autoLoadModel", String(autoLoadModel)); }
+    catch { /* ignore */ }
+  }, [autoLoadModel]);
+
+  // Pre-load a model into GPU memory (auto-load mode)
+  async function handleRequestModelLoad(model: string) {
+    if (!model || modelLoading) return;
+    setModelLoading(true);
+    setModelLoadTarget(model);
+    try {
+      await loadModel(model);
+    } catch (err) {
+      console.error("Failed to pre-load model:", err);
+    } finally {
+      setModelLoading(false);
+      setModelLoadTarget(null);
+    }
+  }
 
   // ----- Study settings & metrics -----
   const persisted = loadPersistedStudySettings() || {};
@@ -286,6 +316,20 @@ export default function App() {
     setChatKey((k) => k + 1);
   }
 
+    // When auto-load is on, preload the relevant model when switching non-chat tabs.
+    // (The chat tab is handled inside ChatPane via its own activeModel effect.)
+    useEffect(() => {
+        if (!autoLoadModel) return;
+        let modelToLoad: string | undefined;
+        switch (tab) {
+            case "vibe":      modelToLoad = vibeModel;     break;
+            case "web":       modelToLoad = webModel;      break;
+            case "image":     modelToLoad = imageModel;    break;
+            case "image_gen": modelToLoad = imageGenModel; break;
+        }
+        if (modelToLoad) handleRequestModelLoad(modelToLoad);
+    }, [tab, autoLoadModel]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const hasSidebar = study.group === "intervention";
     const showSidebar = hasSidebar && tab === "chat";
 
@@ -332,7 +376,7 @@ export default function App() {
             <button onClick={() => setTab("web")}>Web</button>
             <button onClick={() => setTab("image")}>Image</button>
             <button onClick={() => setTab("image_gen")}>Image Gen</button>
-            <button onClick={() => setTab("models")}>Models</button>
+            <button onClick={() => setTab("settings")}>Settings</button>
           </div>
         </div>
 
@@ -358,6 +402,9 @@ export default function App() {
                         model={chatModeModel || undefined}
                         fastModel={fastModel || undefined}
                         deepModel={deepModel || undefined}
+                        autoLoadModel={autoLoadModel}
+                        modelLoading={modelLoading}
+                        onRequestModelLoad={handleRequestModelLoad}
                         onUserPrompt={(m) => setPromptMetrics((arr) => [...arr, m])}
                         onHistoryChange={(history) => setMessages(history)}
                         onModelChange={(model) => setCurrentModel(model)}
@@ -374,7 +421,7 @@ export default function App() {
 
           {tab === "image_gen" && <ImageGenPane model={imageGenModel} />}
 
-          {tab === "models" && (
+          {tab === "settings" && (
             <div style={{ overflow: "auto", height: "100%", minHeight: 0 }}>
                       <ModelManagerPane
                           fastModel={fastModel}
@@ -394,6 +441,10 @@ export default function App() {
                                   return next;
                               })
                           }
+                          autoLoadModel={autoLoadModel}
+                          onAutoLoadModelChange={setAutoLoadModel}
+                          modelLoading={modelLoading}
+                          modelLoadTarget={modelLoadTarget}
                       />
             </div>
           )}

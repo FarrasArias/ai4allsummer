@@ -37,6 +37,24 @@ if not exist "%ROOT%energy-chat-dashboard\node_modules" (
 )
 
 :: ----------------------------------------------------------
+:: Kill any leftover server processes from previous runs
+:: ----------------------------------------------------------
+echo  Cleaning up old processes...
+
+:: Kill anything listening on port 8000 (backend)
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8000 " ^| findstr "LISTENING"') do (
+    taskkill /PID %%p /F >nul 2>&1
+)
+
+:: Kill anything listening on port 5173 (frontend / Vite)
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":5173 " ^| findstr "LISTENING"') do (
+    taskkill /PID %%p /F >nul 2>&1
+)
+
+echo         Done.
+echo.
+
+:: ----------------------------------------------------------
 :: Start Ollama (if not already running)
 :: ----------------------------------------------------------
 echo  [1/3] Starting Ollama...

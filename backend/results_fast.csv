@@ -1,0 +1,11 @@
+index,timestamp,model,thinking_mode,prompt,response,inference_time_ms,energy_wh,input_tokens,output_tokens,user_prompt_tokens,error
+0,2026-03-09T22:21:43,qwen3:14b,fast,What is AI?,,,,,,,500 Server Error: Internal Server Error for url: http://localhost:8000/api/chat
+1,2026-03-09T22:21:45,qwen3:14b,fast,What is a large language model?,,,,,,,500 Server Error: Internal Server Error for url: http://localhost:8000/api/chat
+2,2026-03-09T22:21:47,qwen3:14b,fast,What is the difference between AI and machine learning?,,,,,,,500 Server Error: Internal Server Error for url: http://localhost:8000/api/chat
+3,2026-03-09T22:21:49,qwen3:14b,fast,Name three uses of AI in everyday life.,,,,,,,500 Server Error: Internal Server Error for url: http://localhost:8000/api/chat
+4,2026-03-09T22:21:51,qwen3:14b,fast,What is a neural network?,,,,,,,500 Server Error: Internal Server Error for url: http://localhost:8000/api/chat
+5,2026-03-09T22:21:55,qwen3:14b,fast,How does a chatbot work?,,,,,,,500 Server Error: Internal Server Error for url: http://localhost:8000/api/chat
+6,2026-03-09T22:21:57,qwen3:14b,fast,What is natural language processing?,,,,,,,500 Server Error: Internal Server Error for url: http://localhost:8000/api/chat
+7,2026-03-09T22:21:59,qwen3:14b,fast,Give one example of supervised learning.,,,,,,,500 Server Error: Internal Server Error for url: http://localhost:8000/api/chat
+8,2026-03-09T22:22:01,qwen3:14b,fast,What is overfitting?,,,,,,,500 Server Error: Internal Server Error for url: http://localhost:8000/api/chat
+9,2026-03-09T22:22:04,qwen3:14b,fast,What does GPU stand for?,,,,,,,500 Server Error: Internal Server Error for url: http://localhost:8000/api/chat

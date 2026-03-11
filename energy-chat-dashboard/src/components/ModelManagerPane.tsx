@@ -18,6 +18,10 @@ type Props = {
     modeDefaults?: ModeDefaults;
     modeOverrides?: Partial<Record<ModeKey, string>>;
     onModeOverrideChange?: (mode: ModeKey, model: string | null) => void;
+    autoLoadModel?: boolean;
+    onAutoLoadModelChange?: (v: boolean) => void;
+    modelLoading?: boolean;
+    modelLoadTarget?: string | null;
 };
 
 export default function ModelManagerPane({
@@ -28,6 +32,10 @@ export default function ModelManagerPane({
     modeDefaults,
     modeOverrides,
     onModeOverrideChange,
+    autoLoadModel,
+    onAutoLoadModelChange,
+    modelLoading,
+    modelLoadTarget,
 }: Props) {
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -166,6 +174,51 @@ export default function ModelManagerPane({
         alignContent: "flex-start",
       }}
     >
+      {/* Model Loading */}
+      <section className="panel">
+        <div className="panel-body" style={{ display: "grid", gap: 10 }}>
+          <h3 style={{ margin: 0 }}>Model Loading</h3>
+          <p style={{ fontSize: 12, margin: 0 }}>
+            Choose when models are loaded into GPU memory.
+          </p>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {/* Toggle */}
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={autoLoadModel ?? false}
+                onChange={(e) => onAutoLoadModelChange?.(e.target.checked)}
+                style={{ marginTop: 2, flexShrink: 0 }}
+              />
+              <div>
+                <strong>Auto-load on switch</strong>
+                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
+                  When enabled: the model is pre-loaded into GPU as soon as you switch
+                  thinking mode or tab — your first prompt responds immediately.
+                  <br />
+                  When disabled (default): the model loads on your first prompt — you
+                  will see a "Loading model…" indicator while it warms up.
+                </div>
+              </div>
+            </label>
+
+            {/* Status */}
+            {modelLoading && modelLoadTarget && (
+              <div className="model-loading-banner">
+                <span className="model-loading-spinner" style={{ fontSize: 18 }}>⟳</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500 }}>Loading {modelLoadTarget}…</div>
+                  <div className="model-loading-bar">
+                    <div className="model-loading-bar-fill" />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
       {/* Installed models */}
       <section className="panel">
         <div className="panel-body" style={{ display: "grid", gap: 8 }}>

@@ -348,14 +348,21 @@ class OllamaChat:
                 "Context near limit – consider clearing history or documents."
             )
 
-        # Simple policy: fast = shorter, higher temperature; deep = lower temp, longer
+        # Qwen3 native thinking toggle:
+        #   think=True  → model uses its internal chain-of-thought reasoning before answering.
+        #                  Reasoning tokens go into message.thinking (not streamed to user).
+        #   think=False → model answers directly without the reasoning pass.
+        #
+        # Temperatures follow Qwen3's official recommendations:
+        #   deep  → 0.6  (slightly lower to keep reasoning coherent)
+        #   fast  → 0.7  (standard)
         if thinking_mode == "deep":
-            temperature = 0.3
+            temperature = 0.6
             num_predict = -1   # let it think as long as needed
             think = True
         else:
-            temperature = 0.7
-            num_predict = 256  # shorter, faster answers
+            temperature = 0.6
+            num_predict = -1
             think = False
 
         # Append user message, then build messages

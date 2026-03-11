@@ -1020,3 +1020,85 @@ button,
         transform: translateY(0);
     }
 }
+
+/* ───────────────────────────────────────────────
+   GFM Markdown tables inside chat bubbles
+   ─────────────────────────────────────────────── */
+.markdown-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 10px 0;
+}
+
+.markdown-table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.markdown-th,
+.markdown-td {
+    border: 1px solid var(--color-border, #d0d7e2);
+    padding: 6px 10px;
+    text-align: left;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.markdown-th {
+    background: rgba(0, 0, 0, 0.05);
+    font-weight: 600;
+}
+
+.markdown-table tbody tr:nth-child(even) td {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+/* ───────────────────────────────────────────────
+   Model loading spinner
+   ─────────────────────────────────────────────── */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.model-loading-spinner {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+    line-height: 1;
+}
+
+/* Loading banner shown in the input area when a model is preloading */
+.model-loading-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    background: rgba(27, 110, 40, 0.07);
+    border: 1px solid rgba(27, 110, 40, 0.25);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--color-text-dim, #243447);
+}
+
+.model-loading-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--color-border, #d0d7e2);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.model-loading-bar-fill {
+    height: 100%;
+    width: 40%;
+    background: var(--color-accent, #1b6e28);
+    border-radius: 999px;
+    animation: loading-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes loading-slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+}
