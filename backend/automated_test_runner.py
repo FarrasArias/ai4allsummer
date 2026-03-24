@@ -32,7 +32,7 @@ from datetime import datetime
 
 import requests
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# -- Configuration ---------------------------------------------------------------
 
 BASE_URL        = "http://localhost:8000"
 CHAT_ENDPOINT   = f"{BASE_URL}/api/chat"
@@ -46,7 +46,7 @@ DEFAULT_OUTPUT      = "test_results.csv"
 # Max seconds to wait for a single prompt response.  Increase for slow models.
 REQUEST_TIMEOUT = 300
 
-# ──────────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------------
 
 
 def load_prompts(path: str) -> list[str]:
@@ -64,6 +64,15 @@ def load_prompts(path: str) -> list[str]:
         # Plain text: one prompt per line
         with open(path, encoding="utf-8") as f:
             return [line.strip() for line in f if line.strip()]
+
+
+def check_server() -> bool:
+    """Check if the backend server is reachable."""
+    try:
+        r = requests.get(f"{BASE_URL}/api/health", timeout=5)
+        return r.status_code == 200
+    except Exception:
+        return False
 
 
 def reset_session(model: str) -> None:
@@ -96,13 +105,29 @@ def run_prompt(prompt: str, model: str, thinking_mode: str) -> dict:
 
     acc = ""
     try:
+        # Must send as multipart/form-data because the /api/chat endpoint
+        # includes an optional File() parameter alongside Form() fields.
+        # Using data= sends x-www-form-urlencoded which FastAPI rejects.
+        multipart_fields = {
+            "prompt": (None, prompt),
+            "model": (None, model),
+            "thinking_mode": (None, thinking_mode),
+        }
         r = requests.post(
             CHAT_ENDPOINT,
-            data={"prompt": prompt, "model": model, "thinking_mode": thinking_mode},
+            files=multipart_fields,
             stream=True,
             timeout=REQUEST_TIMEOUT,
         )
-        r.raise_for_status()
+        if r.status_code != 200:
+            # Read the error body for a useful message
+            try:
+                err_body = r.json()
+                detail = err_body.get("detail", err_body)
+            except Exception:
+                detail = r.text[:500]
+            result["error"] = f"HTTP {r.status_code}: {detail}"
+            return result
 
         for raw_line in r.iter_lines():
             if not raw_line:
@@ -193,8 +218,9 @@ def run_batch(
                 ms        = res["inference_time_ms"] or 0
                 mwh       = (res["energy_wh"] or 0) * 1000
                 ctx_tok   = res["input_tokens"]
+                q_tok     = res["user_prompt_tokens"]
                 out_tok   = res["output_tokens"]
-                print(f"  ✓ {ms}ms | {mwh:.4f} mWh | ctx={ctx_tok} out={out_tok}")
+                print(f"  OK {ms}ms | {mwh:.4f} mWh | ctx={ctx_tok} q={q_tok} out={out_tok}")
 
             writer.writerow({
                 "index":              i,
@@ -210,7 +236,7 @@ def run_batch(
                 "user_prompt_tokens": res["user_prompt_tokens"],
                 "error":              res["error"],
             })
-            # Flush after every row — safe against crashes mid-run
+            # Flush after every row - safe against crashes mid-run
             csvfile.flush()
 
     print(f"\nDone. {total - start_index} prompts completed.")
@@ -245,7 +271,7 @@ def main():
     )
     parser.add_argument(
         "--resume", action="store_true",
-        help="Resume an interrupted run — appends to existing output CSV",
+        help="Resume an interrupted run - appends to existing output CSV",
     )
     args = parser.parse_args()
 
@@ -267,6 +293,25 @@ def main():
             print(f"All {len(prompts)} prompts already completed. Nothing to do.")
             sys.exit(0)
         print(f"Resuming from prompt {start_index + 1}/{len(prompts)}\n")
+
+    # Verify server is reachable before starting
+    if not check_server():
+        print(f"ERROR: Cannot reach backend at {BASE_URL}")
+        print("       Make sure the server is running (start.bat or:")
+        print("       python -m uvicorn server:app --host 0.0.0.0 --port 8000)")
+        sys.exit(1)
+
+    # Verify the requested model is installed in Ollama
+    try:
+        models_resp = requests.get(f"{BASE_URL}/api/models", timeout=10)
+        installed = models_resp.json().get("models", [])
+        if args.model not in installed:
+            print(f"ERROR: Model '{args.model}' is not installed in Ollama.")
+            print(f"       Installed models: {', '.join(installed) if installed else '(none)'}")
+            print(f"       Pull it with: ollama pull {args.model}")
+            sys.exit(1)
+    except Exception as e:
+        print(f"WARNING: Could not verify model availability: {e}")
 
     # Print run summary
     print("=" * 60)

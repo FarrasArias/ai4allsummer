@@ -6,6 +6,7 @@ import VibeCodingPane from "./components/VibeCodingPane";
 import WebChatPane from "./components/WebChatPane";
 import ImageAnalysisPane from "./components/ImageAnalysisPane";
 import ImageGenPane from "./components/ImageGenPane";
+import TestRunnerPane from "./components/TestRunnerPane";
 import { TipProvider } from "./components/TipContext";
 import TipsBox from "./components/TipsBox";
 // import AnalyticsPane from "./components/AnalyticsPane";
@@ -30,7 +31,7 @@ export default function App() {
   const [lastPromptEnergyPct, setLastPromptEnergyPct] = useState(0);
   const [totalEnergyPct, setTotalEnergyPct] = useState(0);
   const [litresWater, setLitresWater] = useState(0);
-  const [tab, setTab] = useState<"chat" | "vibe" | "web" | "image" | "image_gen" | "settings">("chat");
+  const [tab, setTab] = useState<"chat" | "vibe" | "web" | "image" | "image_gen" | "settings" | "testing">("chat");
 
   const [latestPromptWh, setLatestPromptWh] = useState<number | null>(null);
   const [sessionTotalWh, setSessionTotalWh] = useState<number | null>(null);
@@ -377,6 +378,7 @@ export default function App() {
             <button onClick={() => setTab("image")}>Image</button>
             <button onClick={() => setTab("image_gen")}>Image Gen</button>
             <button onClick={() => setTab("settings")}>Settings</button>
+            <button onClick={() => setTab("testing")}>Testing</button>
           </div>
         </div>
 
@@ -446,6 +448,12 @@ export default function App() {
                           modelLoading={modelLoading}
                           modelLoadTarget={modelLoadTarget}
                       />
+            </div>
+          )}
+
+          {tab === "testing" && (
+            <div style={{ overflow: "auto", height: "100%", minHeight: 0 }}>
+              <TestRunnerPane defaultModel={chatModeModel || undefined} />
             </div>
           )}
 

@@ -1,0 +1,104 @@
+index,timestamp,model,thinking_mode,prompt,response,inference_time_ms,energy_wh,input_tokens,output_tokens,user_prompt_tokens,error
+0,2026-03-24T10:08:42,qwen3:1.7b,fast,What is AI?,"AI, or Artificial Intelligence, refers to the development of computer systems capable of performing tasks that typically require human intelligence, such as learning, reasoning, problem-solving, perception, and language understanding. AI can be categorized into two main types: narrow AI, which is designed for specific tasks (e.g., image recognition, natural language processing), and general AI, which refers to systems capable of performing any intellectual task that a human can do. Current AI systems are largely narrow AI, and they are often implemented using machine learning, a subset of AI that enables systems to learn from data and improve their performance over time.",1133,0.002188290227020884,83,123,2,
+1,2026-03-24T10:08:45,qwen3:1.7b,fast,What is a large language model?,"A large language model (LLM) is a type of artificial intelligence system designed to understand and generate human-like text. These models are trained on vast amounts of text data from the internet, books, documents, and other sources, allowing them to learn the structure, style, and vocabulary of natural language. LLMs can perform a variety of tasks, such as answering questions, generating code, writing stories, translating text, and more. They are characterized by their ability to generate coherent and contextually relevant responses, often demonstrating a level of linguistic proficiency that rivals human writers. However, they are still limited in their understanding of complex concepts and require fine-tuning or specific instructions to perform tasks beyond their initial training scope.",1067,0.0033969788907955993,222,145,7,
+2,2026-03-24T10:08:49,qwen3:1.7b,fast,What is the difference between AI and machine learning?,"AI (Artificial Intelligence) is a broad field that encompasses the development of systems capable of performing tasks that typically require human intelligence, such as learning, reasoning, problem-solving, perception, and language understanding. It includes various subfields, such as machine learning, natural language processing, computer vision, and robotics.
+
+Machine learning (ML) is a subset of AI that focuses on building systems that learn from data without being explicitly programmed. ML algorithms analyze historical data to identify patterns and make predictions or decisions. It is a key component of AI, as many AI applications rely on machine learning to improve their performance over time.
+
+In summary, AI is the broader concept, while machine learning is a specific approach within AI that enables systems to learn from data.",1226,0.0,386,150,13,
+3,2026-03-24T10:08:52,qwen3:1.7b,fast,Name three uses of AI in everyday life.,"1. **Virtual Assistants**: AI-powered virtual assistants like Siri, Alexa, and Google Assistant help users manage their schedules, set reminders, play music, and perform other tasks by understanding natural language commands.
+
+2. **Recommendation Systems**: AI algorithms are used in streaming services (e.g., Netflix, Spotify) and e-commerce platforms (e.g., Amazon) to suggest personalized content or products based on user behavior and preferences.
+
+3. **Smart Home Devices**: AI enables smart home systems like smart thermostats (e.g., Nest), smart speakers (e.g., Alexa), and security systems to learn user habits and automate tasks, such as adjusting the temperature or sending alerts.",1086,0.0,554,138,9,
+4,2026-03-24T10:08:55,qwen3:1.7b,fast,What is a neural network?,"A neural network is a computational model inspired by the structure and function of the human brain. It consists of layers of interconnected nodes (or neurons) that process information in a hierarchical manner. Each node receives input, applies a weighted sum to the inputs, applies an activation function, and passes the result to the next layer.
+
+Neural networks are widely used in various applications, such as image recognition, natural language processing, speech recognition, and predictive analytics. They are particularly effective at learning complex patterns from large datasets, making them a fundamental component of modern AI systems.",990,0.0,707,113,6,
+5,2026-03-24T10:09:01,qwen3:1.7b,fast,How does a chatbot work?,"A chatbot is a computer program designed to simulate human conversation. It uses natural language processing (NLP) to understand and generate human-like responses. Here's a general overview of how a chatbot works:
+
+1. **Understanding User Input**: The chatbot receives user input, such as text or voice commands, and processes it using NLP techniques to determine the meaning and intent behind the message.
+
+2. **Intent Recognition**: The chatbot analyzes the input to identify the user's intent, such as asking for information, making a request, or initiating a conversation.
+
+3. **Context Management**: The chatbot maintains a conversation context to understand the flow of the interaction and provide coherent responses.
+
+4. **Response Generation**: Based on the input and context, the chatbot generates a response that matches the user's intent, using pre-defined rules, machine learning models, or a combination of both.
+
+5. **Natural Language Generation (NLG)**: The chatbot uses NLG techniques to generate human-like text that is grammatically correct and semantically appropriate.
+
+6. **Feedback Loop**: The chatbot continuously learns from user interactions to improve its performance over time.
+
+7. **Integration with Other Systems**: Chatbots can be integrated with various systems, such as websites, mobile apps, or messaging platforms, to provide a seamless user experience.
+
+Chatbots can be rule-based, statistically based, or use machine learning models to improve their performance. They can be designed for specific tasks, such as customer service, information retrieval, or entertainment.",2095,0.021976985498842517,86,309,6,
+6,2026-03-24T10:09:06,qwen3:1.7b,fast,What is natural language processing?,"Natural Language Processing (NLP) is a subfield of artificial intelligence that focuses on the interaction between computers and human language. NLP enables computers to understand, interpret, and generate human language in a way that is both meaningful and contextually appropriate.
+
+Here are the key aspects of NLP:
+
+### 1. **Understanding Language**
+   - NLP allows computers to **analyze** text or speech to extract meaning, identify entities, and recognize patterns.
+   - This includes tasks like:
+     - **Tokenization**: Breaking down text into individual words or phrases.
+     - **Part-of-Speech (POS) Tagging**: Identifying the grammatical role of each word.
+     - **Sentiment Analysis**: Determining the emotional tone of a text (e.g., positive, negative, neutral).
+
+### 2. **Language Understanding**
+   - NLP enables machines to **understand** the meaning of text, even when it is ambiguous or context-dependent.
+   - This involves:
+     - **Parsing**: Breaking down sentences into their components (e.g., subject, verb, object).
+     - **Semantic Analysis**: Understanding the meaning of words and phrases in context.
+     - **Entity Recognition**: Identifying specific entities like people, places, organizations, etc.
+
+### 3. **Language Generation**
+   - NLP includes the ability to **generate** human-like text, such as:
+     - **Machine Translation**: Translating text from one language to another.
+     - **Text Generation**: Creating new content, such as stories, poems, or emails.
+     - **Dialogue Systems**: Generating responses in a conversation.
+
+### 4. **Speech Processing**
+   - NLP also extends to **speech recognition** and **speech synthesis**, allowing computers to **listen** to and **speak** with humans.
+
+### 5. **Applications**
+   - NLP is used in a wide range of applications, including:
+     - **Chatbots and Virtual Assistants** (e.g., Siri, Alexa).
+     - **Customer Service** (e.g., chatbots for support).
+     - **Sentiment Analysis** in social media monitoring.
+     - **Document Processing** (e.g., extracting information from text).
+     - **Machine Translation** (e.g., Google Translate).
+
+### 6. **Challenges**
+   - NLP must handle **varied language** (e.g., dialects, slang, idioms).
+   - It must **handle ambiguity** and **context** to produce accurate results.
+   - It must **adapt to new languages** and **new usage patterns**.
+
+In summary, NLP is a critical technology that enables computers to **understand and generate human language**, making it essential for applications involving natural language interaction.",3448,0.025767434718818302,410,559,9,
+7,2026-03-24T10:09:10,qwen3:1.7b,fast,Give one example of supervised learning.,"One example of **supervised learning** is **classification**, where the model is trained on a labeled dataset. In this type of learning, the algorithm learns to map input data to known output labels. For instance, a **spam detection system** uses supervised learning:
+
+- **Dataset**: A collection of emails, each labeled as ""spam"" or ""not spam"" (the labels are known).
+- **Model Training**: The model learns patterns from the labeled data, such as the presence of certain keywords or phrases that are commonly found in spam emails.
+- **Prediction**: When a new email is received, the model uses the learned patterns to predict whether it is spam or not.
+
+This is a classic example of supervised learning, where the model is trained on a dataset with known outcomes and then used to make predictions on new, unseen data.",1251,0.0,985,169,10,
+8,2026-03-24T10:09:15,qwen3:1.7b,fast,What is overfitting?,"**Overfitting** is a common issue in machine learning where a model learns to perform **excessively well on the training data** but **fails to generalize well on new, unseen data**. In other words, the model becomes too specific to the training data and loses its ability to capture general patterns or relationships in the broader dataset.
+
+### Key Characteristics of Overfitting:
+1. **High Training Accuracy**: The model performs well on the training data.
+2. **Low Generalization Accuracy**: The model performs poorly on new, independent data.
+3. **Complex Models**: Overfitting often occurs with models that are too complex relative to the size of the training data.
+
+### Causes of Overfitting:
+- **Too many parameters** relative to the amount of training data.
+- **High variance** in the model's predictions.
+- **Training for too many epochs** or using a **very complex architecture**.
+
+### Example:
+Imagine a model that is trained on a large dataset of images of cats and dogs. If the model learns every detail about the specific cats and dogs in the training data (e.g., the exact color of a cat's eyes or the specific pattern of a dog's collar), it will overfit. When tested on new images (e.g., a cat with a different color or a dog with a different collar), the model will perform poorly because it has learned too much about the specific examples in the training data and not the general patterns.
+
+### How to Prevent Overfitting:
+- **Regularization**: Techniques like L1/L2 regularization or dropout in neural networks.
+- **Cross-validation**: Splitting the data into training and validation sets to evaluate model performance.
+- **Early stopping**: Halting training when the model's performance on the validation set starts to degrade.
+- **Simpler models**: Using fewer parameters or a simpler architecture.
+
+In summary, overfitting occurs when a model learns the details of the training data too well, leading to poor performance on new data.",2723,0.021165638930501444,1169,407,5,
+9,2026-03-24T10:09:17,qwen3:1.7b,fast,What does GPU stand for?,"GPU stands for **Graphics Processing Unit**. It is a type of specialized electronic circuit designed to handle parallel processing tasks, particularly those involving graphical data and visual computations. GPUs are widely used in modern computers for tasks such as rendering 3D graphics, performing complex calculations, and running machine learning algorithms due to their ability to process multiple tasks simultaneously.",696,0.0,1591,70,6,

@@ -357,3 +357,83 @@ export async function resetImageGen(model: string) {
   const res = await fetch(`${API_BASE}/api/image-gen/reset`, { method: "POST", body });
   return res.json();
 }
+
+// ── Test Runner ──────────────────────────────────────────────────────────────
+
+export async function getTestPromptFiles(): Promise<string[]> {
+  const r = await fetch(`${API_BASE}/api/test/prompt-files`);
+  const j = await r.json();
+  return j.files ?? [];
+}
+
+/**
+ * Start a test run and stream its stdout lines via SSE.
+ * Returns an abort function to cancel the stream.
+ */
+export function runTests(
+  opts: {
+    promptsFile: string;
+    outputFile: string;
+    model: string;
+    thinkingMode: string;
+    resetEvery: number;
+  },
+  onLine: (line: string) => void,
+  onDone?: (exitCode: number) => void,
+  onError?: (err: string) => void,
+): () => void {
+  const body = new FormData();
+  body.append("prompts_file", opts.promptsFile);
+  body.append("output_file", opts.outputFile);
+  body.append("model", opts.model);
+  body.append("thinking_mode", opts.thinkingMode);
+  body.append("reset_every", String(opts.resetEvery));
+
+  const controller = new AbortController();
+
+  fetch(`${API_BASE}/api/test/run`, {
+    method: "POST",
+    body,
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        onError?.(err.error || `HTTP ${res.status}`);
+        return;
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const part of chunk.split("\n\n")) {
+          if (!part.startsWith("data:")) continue;
+          try {
+            const payload = JSON.parse(part.slice(5).trim());
+            if (payload.error) {
+              onError?.(payload.error);
+            } else if (payload.done) {
+              onDone?.(payload.exit_code ?? 0);
+            } else if (payload.line !== undefined) {
+              onLine(payload.line);
+            }
+          } catch {
+            /* ignore malformed SSE */
+          }
+        }
+      }
+    })
+    .catch((err) => {
+      if (err.name !== "AbortError") {
+        onError?.(String(err));
+      }
+    });
+
+  return () => controller.abort();
+}
+
+export async function stopTests(): Promise<void> {
+  await fetch(`${API_BASE}/api/test/stop`, { method: "POST" });
+}

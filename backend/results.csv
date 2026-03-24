@@ -1,0 +1,119 @@
+index,timestamp,model,thinking_mode,prompt,response,inference_time_ms,energy_wh,input_tokens,output_tokens,user_prompt_tokens,error
+0,2026-03-23T17:45:28,qwen3:1.7b,fast,What is machine learning?,"Machine learning is a subset of artificial intelligence that focuses on developing systems that can learn and improve from experience without being explicitly programmed. It involves the use of algorithms and statistical models to recognize patterns in data, make predictions, or take decisions based on historical data. Machine learning is widely applied in areas such as image recognition, natural language processing, recommendation systems, and predictive analytics. The core idea is to build models that can learn from data, adapt to new data, and perform tasks with minimal human intervention.",925,0.0,84,101,6,
+1,2026-03-23T17:45:31,qwen3:1.7b,fast,Explain neural networks in one sentence.,"Neural networks are computational models inspired by the structure of the human brain, consisting of interconnected nodes (neurons) that process and transmit information to enable learning and decision-making.",488,0.006470250749866168,202,36,10,
+2,2026-03-23T17:45:34,qwen3:1.7b,fast,What is the difference between supervised and unsupervised learning?,"Supervised learning involves training a model on a dataset where both input data and the correct output are provided, allowing the model to learn the relationship between the two. The model is evaluated using a separate validation or test dataset. Unsupervised learning, on the other hand, involves training a model on a dataset where only the input data is provided, and the model must find patterns or structures within the data without any explicit feedback or correct answers. The model is typically evaluated using metrics that measure the structure or distribution of the data.",916,0.006470250749866168,259,106,17,
+3,2026-03-23T17:45:37,qwen3:1.7b,fast,Give me a brief definition of a large language model.,"A large language model (LLM) is a type of artificial intelligence system designed to understand and generate human-like text. These models are trained on vast amounts of text data and can perform tasks such as answering questions, writing text, generating code, and more. They are characterized by their ability to learn patterns and generate coherent, contextually relevant responses.",685,0.006470250749866168,385,71,13,
+4,2026-03-23T17:45:40,qwen3:1.7b,fast,What is transfer learning?,"Transfer learning is a machine learning technique where a pre-trained model, typically trained on a large dataset, is adapted to a new task with less data. The model is fine-tuned on the new task's data, leveraging the knowledge gained from the initial training to improve performance on the new task. This approach is widely used to reduce the need for large amounts of data and to accelerate the training process.",743,0.006470250749866168,470,81,6,
+5,2026-03-23T17:45:47,qwen3:1.7b,fast,How does backpropagation work?,"Backpropagation is a fundamental algorithm used in training neural networks. It is a method to compute the gradient of the loss function with respect to the weights of the network, which is essential for optimizing the model using techniques like gradient descent.
+
+Here's a simplified explanation of how backpropagation works:
+
+1. **Forward Propagation**:
+   - Input data is passed through the network layer by layer.
+   - Each neuron computes a weighted sum of its inputs, adds a bias, and applies an activation function.
+   - The output of the network is compared to the actual target values (loss function).
+
+2. **Backpropagation**:
+   - The algorithm calculates the gradient of the loss function with respect to each weight using the chain rule of calculus.
+   - It starts from the output layer and moves backward through the network, computing the gradient of the loss with respect to each neuron's weights.
+   - The gradients are propagated backward through the network, and the weights are updated in the direction that minimizes the loss.
+
+3. **Weight Update**:
+   - The weights are adjusted using an optimization algorithm (e.g., gradient descent), based on the computed gradients.
+   - This process is repeated iteratively until the loss function is minimized.
+
+Backpropagation is crucial for training deep neural networks, as it enables the model to learn complex patterns from data by adjusting weights in a way that minimizes the error in predictions.",1846,0.0,86,287,7,
+6,2026-03-23T17:45:51,qwen3:1.7b,fast,What is overfitting in machine learning?,"Overfitting is a common problem in machine learning where a model learns the training data too well, including the noise and outliers, and performs poorly on new, unseen data. This happens when a model is too complex relative to the amount of training data available, leading it to memorize the training data rather than generalizing from it.
+
+Here's a simplified explanation of overfitting:
+
+1. **Learning the Training Data**:
+   - The model learns the patterns and relationships in the training data.
+   - If the model is too complex, it can memorize the training data (i.e., it becomes a ""perfect fit"" for the training data).
+
+2. **Poor Generalization**:
+   - When the model is overfit, it performs well on the training data but poorly on new, unseen data.
+   - This is because the model has learned to fit the training data too closely, including the noise and irrelevant details, rather than learning the general patterns.
+
+3. **Causes of Overfitting**:
+   - Too many parameters relative to the number of training examples.
+   - High model complexity.
+   - Insufficient training data.
+   - Poorly chosen features or training strategies.
+
+4. **Solutions to Overfitting**:
+   - Regularization (e.g., L1, L2 regularization).
+   - Dropout in neural networks.
+   - Data augmentation.
+   - Pruning or reducing model complexity.
+   - Cross-validation.
+
+Overfitting is a critical issue in machine learning, and techniques are often used to mitigate its effects and improve the model's generalization performance.",2019,0.0015454406230570312,391,324,10,
+7,2026-03-23T17:45:55,qwen3:1.7b,fast,Explain the concept of a training dataset.,"A training dataset is a collection of data points used to train a machine learning model. It consists of input data and the corresponding output labels, which the model uses to learn the relationships between the inputs and the outputs.
+
+Here's a simplified explanation:
+
+1. **Purpose**:
+   - The training dataset is used to teach the model how to make predictions or classifications by exposing it to examples of the problem.
+
+2. **Components**:
+   - **Input Data**: The features or attributes that the model uses to make predictions.
+   - **Output Labels**: The target values that the model aims to predict.
+
+3. **Process**:
+   - The model processes the training data in the forward direction, making predictions.
+   - It then computes the error between the predicted values and the actual labels.
+   - The model uses this error to adjust its weights and biases in the backward direction (backpropagation) to minimize the error.
+
+4. **Importance**:
+   - The training dataset is essential for the model to learn the patterns and relationships in the data.
+   - It allows the model to generalize from the training data to new, unseen data.
+
+In summary, the training dataset is the foundation upon which a machine learning model is trained, enabling it to learn and improve its performance over time.",1980,0.0015454406230570312,733,261,10,
+8,2026-03-23T17:46:00,qwen3:1.7b,fast,What is gradient descent?,"Gradient descent is an optimization algorithm used to find the minimum of a function, typically in the context of training machine learning models. It is a fundamental technique in training neural networks and other models that involve minimizing a loss function.
+
+Here's a simplified explanation of gradient descent:
+
+1. **Objective**:
+   - The goal is to find the set of parameters (weights and biases) that minimize the loss function, which measures the difference between the model's predictions and the actual target values.
+
+2. **How It Works**:
+   - The algorithm starts with an initial set of parameters.
+   - It computes the gradient (the vector of partial derivatives) of the loss function with respect to the parameters.
+   - It then updates the parameters in the direction opposite to the gradient, which reduces the loss.
+
+3. **Key Steps**:
+   - **Compute the gradient**: Calculate how the loss changes with respect to each parameter.
+   - **Update the parameters**: Adjust the parameters in the direction that reduces the loss (i.e., in the direction of the negative gradient).
+   - **Repeat**: The process is repeated iteratively until the loss is minimized or reaches a satisfactory level.
+
+4. **Types of Gradient Descent**:
+   - **Batch Gradient Descent**: Uses all the training data to compute the gradient at each iteration.
+   - **Mini-batch Gradient Descent**: Uses a small subset of the training data (a mini-batch) to compute the gradient.
+   - **Stochastic Gradient Descent**: Uses only one example (a single data point) at a time to compute the gradient.
+
+5. **Role in Machine Learning**:
+   - Gradient descent is a core algorithm in training models, particularly in deep learning, where it is used to optimize the weights of the network.
+
+In summary, gradient descent is a powerful optimization technique that helps models learn from data by minimizing the loss function through iterative parameter updates.",2354,0.0015454406230570312,1008,387,6,
+9,2026-03-23T17:46:04,qwen3:1.7b,fast,"What does ""fine-tuning"" a model mean?","Fine-tuning a model refers to the process of adjusting the parameters of a pre-trained model to better fit a specific task or dataset. This is commonly done after the model has been trained on a different task or dataset, or when the model needs to perform a more precise prediction.
+
+Here's a simplified explanation:
+
+1. **Pre-trained Model**:
+   - A model that has been trained on a large dataset for a general task (e.g., image classification, language understanding).
+
+2. **Fine-tuning**:
+   - The model is further trained on a smaller, more specific dataset (e.g., a particular task or a specific subset of data) to improve its performance on that specific task.
+
+3. **Purpose**:
+   - To fine-tune the model's parameters to better align with the specific characteristics of the new task or data.
+
+4. **Process**:
+   - The model is trained on the new dataset, and its parameters are adjusted to minimize the loss function for the new task.
+
+5. **Benefits**:
+   - Allows the model to leverage knowledge learned from a large dataset while adapting to a specific task.
+   - Can lead to better performance on the target task compared to training the model from scratch.
+
+In summary, fine-tuning is a way to improve a model's performance on a specific task by adjusting its parameters based on new data.",1907,0.003003851778299535,1415,277,9,

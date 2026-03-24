@@ -39,6 +39,8 @@ import json
 import time
 import shutil
 import threading
+import subprocess
+import signal
 from datetime import date
 from typing import List, Optional, AsyncGenerator
 
@@ -359,32 +361,72 @@ def chat(
             print(f"Error loading document {path}: {e}")
 
     def _gen() -> AsyncGenerator[bytes, None]:
-        global _latest_chat_model, _latest_prompt_Wh
+        global _latest_chat_model, _latest_prompt_Wh, _session_total_Wh
         _ensure_power_thread()
         _llm_running_flag["mode"] = "Chat"
         _latest_chat_model = model
 
-        # Track inference start time
+        # Track inference start time and sample GPU power for per-prompt energy
         start_time = time.time()
+        last_sample_time = start_time
+        power_samples: list[float] = []
+
+        # Initial GPU power sample
+        try:
+            gpu_w, _ = get_gpu_power_usage()
+            if gpu_w:
+                power_samples.append(gpu_w)
+        except Exception:
+            pass
 
         try:
             # Stream chunks from the shared chat engine (with memory + docs)
             for chunk in engine.stream_chat(prompt, thinking_mode=thinking_mode):
                 payload = {"delta": chunk}
                 yield f"data: {json.dumps(payload)}\n\n".encode("utf-8")
+
+                # Sample GPU power every ~0.5s during streaming
+                now = time.time()
+                if now - last_sample_time >= 0.5:
+                    try:
+                        gpu_w, _ = get_gpu_power_usage()
+                        if gpu_w:
+                            power_samples.append(gpu_w)
+                    except Exception:
+                        pass
+                    last_sample_time = now
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
         finally:
             _llm_running_flag["mode"] = "None"
+
+            # Final GPU power sample
+            try:
+                gpu_w, _ = get_gpu_power_usage()
+                if gpu_w:
+                    power_samples.append(gpu_w)
+            except Exception:
+                pass
+
             # Calculate inference time
-            inference_time_ms = int((time.time() - start_time) * 1000)
-            # Give power thread a moment to finalize energy calculation
-            time.sleep(0.3)
+            elapsed_s = time.time() - start_time
+            inference_time_ms = int(elapsed_s * 1000)
+
+            # Compute per-prompt energy from sampled GPU power
+            if power_samples:
+                avg_power_w = sum(power_samples) / len(power_samples)
+                prompt_energy_wh = max(0.0, (avg_power_w - _normal_consumption) * elapsed_s / 3600.0)
+            else:
+                prompt_energy_wh = 0.0
+
+            _latest_prompt_Wh = prompt_energy_wh
+            _session_total_Wh += prompt_energy_wh
+
             # Tell the client we're done, include metrics
             done_payload = {
                 "done": True,
                 "inference_time_ms": inference_time_ms,
-                "energy_wh": _latest_prompt_Wh,
+                "energy_wh": prompt_energy_wh,
                 "input_tokens": engine._last_prompt_eval_count,
                 "output_tokens": engine._last_eval_count,
                 "user_prompt_tokens": engine._last_user_prompt_tokens,
@@ -888,3 +930,131 @@ def analytics_power():
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+# -----------------------------
+# Test Runner  (runs automated_test_runner.py as subprocess)
+# -----------------------------
+_BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+_test_process: Optional[subprocess.Popen] = None
+_test_process_lock = threading.Lock()
+
+
+@app.get("/api/test/prompt-files")
+def test_prompt_files():
+    """List .csv and .txt files in the backend dir that could be prompt files."""
+    files: list[str] = []
+    for f in sorted(os.listdir(_BACKEND_DIR)):
+        if f.startswith(".") or f.startswith("_"):
+            continue
+        if f.lower().endswith((".csv", ".txt")):
+            # Exclude known non-prompt files
+            if f in ("requirements.txt",):
+                continue
+            # Exclude result files (they have columns like inference_time_ms)
+            path = os.path.join(_BACKEND_DIR, f)
+            try:
+                if f.lower().endswith(".csv"):
+                    with open(path, newline="", encoding="utf-8") as fh:
+                        header = fh.readline().lower()
+                        if "inference_time_ms" in header or "response" in header:
+                            continue  # looks like an output/results file
+            except Exception:
+                pass
+            files.append(f)
+    return {"files": files}
+
+
+@app.post("/api/test/run")
+def test_run(
+    prompts_file: str = Form(...),
+    output_file: str = Form("test_results.csv"),
+    model: str = Form("qwen3:1.7b"),
+    thinking_mode: str = Form("fast"),
+    reset_every: int = Form(5),
+):
+    """
+    Start the automated test runner as a subprocess and stream its
+    stdout line by line as SSE events.
+    """
+    global _test_process
+
+    with _test_process_lock:
+        if _test_process is not None and _test_process.poll() is None:
+            return JSONResponse(
+                {"error": "A test run is already in progress."},
+                status_code=409,
+            )
+
+    script = os.path.join(_BACKEND_DIR, "automated_test_runner.py")
+    if not os.path.exists(script):
+        return JSONResponse(
+            {"error": "automated_test_runner.py not found"},
+            status_code=404,
+        )
+
+    # Resolve prompts file path (relative to backend dir)
+    prompts_path = (
+        prompts_file
+        if os.path.isabs(prompts_file)
+        else os.path.join(_BACKEND_DIR, prompts_file)
+    )
+    output_path = (
+        output_file
+        if os.path.isabs(output_file)
+        else os.path.join(_BACKEND_DIR, output_file)
+    )
+
+    cmd = [
+        "python", script,
+        "--prompts", prompts_path,
+        "--output", output_path,
+        "--model", model,
+        "--thinking", thinking_mode,
+        "--reset-every", str(reset_every),
+    ]
+
+    def _gen():
+        global _test_process
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                cwd=_BACKEND_DIR,
+                bufsize=1,  # line-buffered
+            )
+            with _test_process_lock:
+                _test_process = proc
+
+            for line in iter(proc.stdout.readline, ""):
+                payload = {"line": line.rstrip("\n\r")}
+                yield f"data: {json.dumps(payload)}\n\n".encode("utf-8")
+
+            proc.wait()
+            done_payload = {"done": True, "exit_code": proc.returncode}
+            yield f"data: {json.dumps(done_payload)}\n\n".encode("utf-8")
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
+        finally:
+            with _test_process_lock:
+                _test_process = None
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+@app.post("/api/test/stop")
+def test_stop():
+    """Kill a running test subprocess."""
+    global _test_process
+    with _test_process_lock:
+        if _test_process is None or _test_process.poll() is not None:
+            return {"ok": True, "message": "No test running"}
+        try:
+            _test_process.terminate()
+            _test_process.wait(timeout=5)
+        except Exception:
+            _test_process.kill()
+        _test_process = None
+    return {"ok": True, "message": "Test stopped"}
