@@ -366,18 +366,20 @@ def chat(
         _llm_running_flag["mode"] = "Chat"
         _latest_chat_model = model
 
-        # Track inference start time and sample GPU power for per-prompt energy
-        start_time = time.time()
-        last_sample_time = start_time
-        power_samples: list[float] = []
-
-        # Initial GPU power sample
+        # ── Per-prompt energy measurement ──
+        # Take one baseline reading BEFORE inference (GPU is idle).
+        # Then sample every ~0.2s DURING streaming to capture active power.
+        baseline_w = 0.0
         try:
             gpu_w, _ = get_gpu_power_usage()
             if gpu_w:
-                power_samples.append(gpu_w)
+                baseline_w = gpu_w
         except Exception:
             pass
+
+        start_time = time.time()
+        last_sample_time = start_time
+        inference_samples: list[float] = []   # only samples taken DURING inference
 
         try:
             # Stream chunks from the shared chat engine (with memory + docs)
@@ -385,13 +387,13 @@ def chat(
                 payload = {"delta": chunk}
                 yield f"data: {json.dumps(payload)}\n\n".encode("utf-8")
 
-                # Sample GPU power every ~0.5s during streaming
+                # Sample GPU power every ~0.2s during streaming
                 now = time.time()
-                if now - last_sample_time >= 0.5:
+                if now - last_sample_time >= 0.2:
                     try:
                         gpu_w, _ = get_gpu_power_usage()
                         if gpu_w:
-                            power_samples.append(gpu_w)
+                            inference_samples.append(gpu_w)
                     except Exception:
                         pass
                     last_sample_time = now
@@ -400,11 +402,11 @@ def chat(
         finally:
             _llm_running_flag["mode"] = "None"
 
-            # Final GPU power sample
+            # One more sample right after inference finishes (GPU still warm)
             try:
                 gpu_w, _ = get_gpu_power_usage()
                 if gpu_w:
-                    power_samples.append(gpu_w)
+                    inference_samples.append(gpu_w)
             except Exception:
                 pass
 
@@ -412,12 +414,23 @@ def chat(
             elapsed_s = time.time() - start_time
             inference_time_ms = int(elapsed_s * 1000)
 
-            # Compute per-prompt energy from sampled GPU power
-            if power_samples:
-                avg_power_w = sum(power_samples) / len(power_samples)
-                prompt_energy_wh = max(0.0, (avg_power_w - _normal_consumption) * elapsed_s / 3600.0)
+            # Compute per-prompt energy:
+            #   energy = (avg_inference_power − idle_baseline) × time
+            # If we captured mid-stream samples, use their average.
+            # Otherwise fall back to (final_sample − baseline) as a rough estimate.
+            if inference_samples:
+                avg_power_w = sum(inference_samples) / len(inference_samples)
+            elif baseline_w > 0:
+                # Very short prompt — no mid-stream samples captured.
+                # Use baseline as a rough proxy (better than 0).
+                avg_power_w = baseline_w
             else:
-                prompt_energy_wh = 0.0
+                avg_power_w = 0.0
+
+            # Use the pre-inference baseline as idle reference; fall back to
+            # the background thread's running average if we couldn't read it.
+            idle_w = baseline_w if baseline_w > 0 else _normal_consumption
+            prompt_energy_wh = max(0.0, (avg_power_w - idle_w) * elapsed_s / 3600.0)
 
             _latest_prompt_Wh = prompt_energy_wh
             _session_total_Wh += prompt_energy_wh
