@@ -1,0 +1,126 @@
+index,timestamp,model,thinking_mode,prompt,response,inference_time_ms,energy_wh,input_tokens,output_tokens,user_prompt_tokens,error
+0,2026-03-24T10:29:07,qwen3:1.7b,fast,What is AI?,"AI, or Artificial Intelligence, refers to the development of computer systems capable of performing tasks that typically require human intelligence, such as learning, reasoning, problem-solving, perception, and language understanding. AI can be categorized into different types, including narrow AI (focused on a specific task), general AI (capable of any intellectual task), and superintelligent AI (far surpassing human intelligence).
+
+AI technologies are used in various fields, such as healthcare, finance, transportation, and customer service, to automate tasks, improve decision-making, and enhance user experiences. The goal of AI is to create systems that can perform tasks with minimal human intervention, learning from data and adapting over time.",1203,0.01830509035900745,83,137,2,
+1,2026-03-24T10:29:11,qwen3:1.7b,fast,What is a large language model?,"A **large language model (LLM)** is a type of artificial intelligence (AI) model that is trained on vast amounts of text data to understand and generate human-like text. These models are designed to perform tasks such as language translation, text generation, question answering, and natural language understanding.
+
+LLMs are characterized by their **large number of parameters** (i.e., the number of neurons or weights in the neural network), which allows them to capture complex patterns and relationships in the data. They are typically trained using **deep learning techniques**, often involving **transformer architectures**, which enable the model to process long sequences of text efficiently.
+
+Key features of large language models include:
+
+- **Text generation**: Creating coherent and contextually relevant text.
+- **Language understanding**: Recognizing and interpreting the meaning of text.
+- **Reasoning**: Performing logical or abstract tasks based on the input text.
+- **Multilingual support**: Understanding and generating text in multiple languages.
+
+Examples of large language models include **GPT (Generative Pre-trained Transformer)**, **BERT (Bidirectional Encoder Representations from Transformers)**, and **T5**. These models are widely used in applications such as chatbots, content generation, virtual assistants, and more.",1613,0.020982131123552756,236,250,7,
+2,2026-03-24T10:29:16,qwen3:1.7b,fast,What is the difference between AI and machine learning?,"The difference between **AI (Artificial Intelligence)** and **machine learning (ML)** lies in their scope and purpose:
+
+### 1. **AI (Artificial Intelligence)**  
+- **Definition**: AI is the broader field of study that aims to create machines or software that can perform tasks that typically require human intelligence, such as reasoning, problem-solving, perception, and language understanding.  
+- **Scope**: AI encompasses **all the subfields** of artificial intelligence, including:  
+  - **Narrow AI**: Specialized systems for specific tasks (e.g., image recognition, speech recognition).  
+  - **General AI**: Systems that can perform any intellectual task.  
+  - **Superintelligent AI**: Systems that surpass human intelligence.  
+- **Goal**: To create intelligent systems that can perform tasks autonomously, with minimal human intervention.
+
+### 2. **Machine Learning (ML)**  
+- **Definition**: ML is a subset of AI that focuses on the development of algorithms and models that can learn patterns from data without being explicitly programmed.  
+- **Scope**: ML is **a technique** within AI that enables systems to **learn from data** and **make predictions or decisions**.  
+- **Goal**: To build systems that can **automatically improve** their performance over time by learning from experience.
+
+### Key Differences:
+| Feature                | AI (Broader)                          | Machine Learning (Subset)              |
+|------------------------|----------------------------------------|------------------------------------------|
+| **Scope**              | All areas of AI (reasoning, perception, etc.) | Focuses on learning from data to make predictions |
+| **Purpose**            | Create intelligent systems              | Enable systems to learn and improve from data |
+| **Examples**           | Self-driving cars, natural language processing | GPT, TensorFlow, PyTorch                |
+| **Level of Autonomy**  | High (intelligent systems)               | Low (requires data to improve)           |
+
+### Summary:
+- **AI** is the **larger field** that includes **machine learning** as a subset.  
+- **Machine learning** is a **specific technique** within AI that enables systems to **learn from data** and **improve over time**.",2763,0.04062560960851249,505,453,13,
+3,2026-03-24T10:29:19,qwen3:1.7b,fast,Name three uses of AI in everyday life.,"Three common uses of AI in everyday life include:
+
+1. **Virtual Assistants (e.g., Siri, Alexa, Google Assistant)**: AI-powered virtual assistants help users manage tasks, set reminders, control smart home devices, and answer questions.
+
+2. **Recommendation Systems (e.g., Netflix, Amazon, Spotify)**: AI algorithms analyze user behavior and preferences to suggest movies, products, or music, enhancing the user experience.
+
+3. **Smartphones and Wearables (e.g., Apple Watch, Fitbit)**: AI enables features like health monitoring, location tracking, and personalized recommendations, improving convenience and functionality.",1007,0.0018516409484100607,982,126,9,
+4,2026-03-24T10:29:24,qwen3:1.7b,fast,What is a neural network?,"A **neural network** is a computational model inspired by the structure and function of the human brain. It consists of **layers of interconnected nodes** (often called ""neurons"") that process information in a hierarchical manner. These networks are widely used in artificial intelligence, machine learning, and deep learning to perform tasks such as image recognition, natural language processing, and pattern recognition.
+
+### Key Components of a Neural Network:
+1. **Input Layer**: Receives the raw data (e.g., images, text, sensor readings).
+2. **Hidden Layers**: Composed of multiple neurons that process the data through a series of mathematical operations.
+3. **Output Layer**: Produces the final result or prediction.
+
+### How It Works:
+- **Training**: Neural networks are trained using **large datasets** and **algorithms** that adjust the weights of the connections between neurons to minimize errors.
+- **Activation Functions**: These functions introduce non-linearity into the network, allowing it to learn complex patterns.
+- **Backpropagation**: A technique used to train neural networks by propagating the error from the output layer back through the network and adjusting the weights accordingly.
+
+### Common Applications:
+- **Image Recognition**: Identifying objects in images (e.g., facial recognition, object detection).
+- **Natural Language Processing (NLP)**: Understanding and generating human language (e.g., chatbots, translation services).
+- **Recommendation Systems**: Personalizing recommendations based on user behavior.
+- **Predictive Analytics**: Forecasting trends or outcomes (e.g., stock price prediction, weather forecasting).
+
+### Types of Neural Networks:
+- **Feedforward Neural Networks**: Process data in a single direction.
+- **Recurrent Neural Networks (RNNs)**: Handle sequential data (e.g., text, speech) by maintaining a state over time.
+- **Convolutional Neural Networks (CNNs)**: Effective for image data (e.g., object detection, image classification).
+- **Transformers**: Used in NLP and other tasks, with self-attention mechanisms.
+
+In summary, neural networks are powerful tools for learning and making predictions from data, and they form the foundation of many modern AI applications.",2809,0.03721931539279744,1123,440,6,
+5,2026-03-24T10:29:31,qwen3:1.7b,fast,How does a chatbot work?,"A chatbot is a computer program designed to simulate human conversation. It can be used for various purposes, such as customer service, personal assistance, or entertainment. The process of how a chatbot works involves several key steps:
+
+1. **Natural Language Understanding (NLU):** The chatbot analyzes the user's input to understand the meaning and intent behind the message. This involves parsing the text, identifying key terms, and determining the context.
+
+2. **Intent Recognition:** The chatbot identifies the user's intent, such as asking for information, making a request, or providing assistance. This is often done using machine learning models that are trained on large datasets of text.
+
+3. **Dialogue Management:** The chatbot maintains a conversation with the user, keeping track of the previous interactions to maintain context and coherence. It uses this information to respond appropriately to the current input.
+
+4. **Response Generation:** Based on the understanding of the user's intent and the conversation history, the chatbot generates a response that is natural and relevant. This may involve using pre-defined responses or generating new content using its language model.
+
+5. **Contextual Awareness:** The chatbot maintains a context of the conversation to ensure that responses are consistent and relevant. It uses this context to avoid misunderstandings and provide a seamless user experience.
+
+6. **Feedback and Learning:** The chatbot can learn from user interactions to improve its performance over time. This involves analyzing the user's responses and adjusting its behavior accordingly.
+
+7. **User Interface:** The chatbot is typically integrated into a user interface, such as a website, mobile application, or messaging platform, allowing users to interact with it naturally.
+
+In summary, a chatbot works by understanding user input, maintaining context, generating appropriate responses, and adapting to user interactions to provide a helpful and engaging experience.",2583,0.014501381724341742,86,368,6,
+6,2026-03-24T10:29:34,qwen3:1.7b,fast,What is natural language processing?,"Natural Language Processing (NLP) is a subfield of artificial intelligence that focuses on the interaction between computers and human language. NLP enables machines to understand, interpret, and generate human language, allowing them to perform tasks such as:
+
+- **Text analysis:** Identifying key concepts, sentiment, or topics in text.
+- **Speech recognition:** Converting spoken language into text.
+- **Machine translation:** Translating text from one language to another.
+- **Sentiment analysis:** Determining the emotional tone of a text (e.g., positive, negative, neutral).
+- **Entity recognition:** Identifying and categorizing specific entities in text (e.g., people, organizations, locations).
+
+NLP is widely used in applications such as:
+
+- **Chatbots and virtual assistants** (e.g., Siri, Alexa)
+- **Email and document analysis**
+- **Customer service chatbots**
+- **Language translation tools**
+- **Content moderation and sentiment analysis**
+
+At its core, NLP involves developing algorithms and models that can process and understand human language, making it possible for machines to engage in meaningful conversations with humans.",1499,0.0,469,226,9,
+7,2026-03-24T10:29:37,qwen3:1.7b,fast,Give one example of supervised learning.,"One example of supervised learning is **classification** in machine learning. In supervised learning, the model is trained on a labeled dataset, where each example includes both input data and the corresponding correct output. The model learns to map inputs to outputs by minimizing the difference between its predictions and the actual labels.
+
+For example, in **email spam detection**, a supervised learning algorithm is trained on a dataset of emails that are already labeled as ""spam"" or ""not spam."" The algorithm learns to recognize patterns in the text that are commonly found in spam emails, such as certain keywords or sentence structures. When new emails are presented, the model uses this learned pattern to classify them as spam or not spam.",1026,0.0,711,139,10,
+8,2026-03-24T10:29:41,qwen3:1.7b,fast,What is overfitting?,"Overfitting is a common issue in machine learning where a model learns too well from the training data that it performs poorly on new, unseen data. This happens when the model becomes too complex and starts memorizing the training data rather than generalizing from it.
+
+### Key Characteristics of Overfitting:
+- The model performs well on the training data but poorly on the test or validation data.
+- The model may have high accuracy on the training data but fails to capture the underlying patterns in the data.
+- The model may overfit to specific details in the training data, such as noise or outliers, rather than learning the general trend.
+
+### Causes of Overfitting:
+- The model is too complex relative to the amount of training data.
+- The model is trained for too long, leading to excessive memorization of the training data.
+- The training data is not representative of the real-world data the model will encounter.
+
+### Example:
+Imagine a model trained to predict the price of a house based on features like size, location, and number of bedrooms. If the model learns the exact details of each house in the training set (e.g., ""this house is 3000 square feet in this specific neighborhood"") instead of learning the general trend that larger houses in better neighborhoods tend to be more expensive, it will overfit. This means the model will perform poorly when predicting prices for new houses that don't match the training data's specific details.",2131,0.011106674455385237,865,293,5,
+9,2026-03-24T10:29:44,qwen3:1.7b,fast,What does GPU stand for?,"GPU stands for **Graphics Processing Unit**. It is a type of specialized electronic circuit designed to handle parallel processing, particularly for rendering graphics in computers and other devices. GPUs are widely used in machine learning and deep learning due to their ability to perform complex calculations at a much faster rate than traditional CPUs, making them essential for training large neural networks.",792,0.0,1173,70,6,
