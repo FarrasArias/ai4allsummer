@@ -83,7 +83,7 @@ else
 
     if command -v brew &>/dev/null; then
         read -p "  Install Ollama via Homebrew? (Y/n): " INSTALL_OLLAMA
-        if [ "${INSTALL_OLLAMA,,}" != "n" ]; then
+        if [ "$(echo "$INSTALL_OLLAMA" | tr '[:upper:]' '[:lower:]')" != "n" ]; then
             echo "        Installing Ollama via Homebrew..."
             brew install ollama
         else
@@ -152,7 +152,7 @@ else
     echo "  The default model (qwen3:1.7b) is about ~1 GB to download."
     echo ""
     read -p "  Download the default model now? (Y/n): " PULL_MODEL
-    if [ "${PULL_MODEL,,}" != "n" ]; then
+    if [ "$(echo "$PULL_MODEL" | tr '[:upper:]' '[:lower:]')" != "n" ]; then
         echo ""
         echo "        Downloading qwen3:1.7b (this may take a few minutes)..."
         ollama pull qwen3:1.7b || echo "  [!] Model download failed. Try: ollama pull qwen3:1.7b"
