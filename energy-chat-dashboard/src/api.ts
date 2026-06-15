@@ -291,6 +291,84 @@ export async function resetVibe(model: string) {
   return res.json();
 }
 
+// ── Coding Agent (claw-code-agent) — SSE streaming ──
+
+export type AgentEvent =
+  | { type: "thinking" }
+  | { type: "assistant"; content: string }
+  | { type: "tool_start"; tool: string; args: Record<string, any> }
+  | { type: "tool_result"; tool: string; ok: boolean; content: string }
+  | { type: "done"; output: string; turns: number; tool_calls: number; usage: Record<string, number>; stop_reason?: string }
+  | { type: "error"; error: string };
+
+/**
+ * Stream the coding agent's response as SSE events.
+ * Returns an abort function.
+ */
+export function streamAgentChat(
+  opts: { prompt: string; model: string },
+  onEvent: (event: AgentEvent) => void,
+  onDone?: () => void,
+  onError?: (err: string) => void,
+): () => void {
+  const body = new FormData();
+  body.append("prompt", opts.prompt);
+  body.append("model", opts.model);
+
+  const controller = new AbortController();
+
+  fetch(`${API_BASE}/api/agent/chat`, {
+    method: "POST",
+    body,
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok || !res.body) {
+        onError?.(`Server error: ${res.status}`);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+
+        // Parse SSE lines
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          for (const line of part.split("\n")) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const event = JSON.parse(line.slice(6)) as AgentEvent;
+              onEvent(event);
+            } catch {
+              /* skip malformed lines */
+            }
+          }
+        }
+      }
+      onDone?.();
+    })
+    .catch((err) => {
+      if (err.name !== "AbortError") {
+        onError?.(String(err));
+      }
+    });
+
+  return () => controller.abort();
+}
+
+export async function resetAgent(model: string) {
+  const body = new FormData();
+  body.append("model", model);
+  const res = await fetch(`${API_BASE}/api/agent/reset`, { method: "POST", body });
+  return res.json();
+}
+
 // Web chat (tools-enabled, JSON API)
 export async function webChat(opts: { prompt: string; model: string }) {
   const body = new FormData();

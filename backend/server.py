@@ -51,6 +51,12 @@ from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from claw_agent_wrapper import (
+    run_agent_streaming,
+    reset_agent as claw_reset_agent,
+    DEFAULT_AGENT_MODEL,
+)
+
 from utilities.ollama_utils import extract_model_names
 from utilities.power_usage import (
     get_cpu_power_usage,
@@ -1071,3 +1077,34 @@ def test_stop():
             _test_process.kill()
         _test_process = None
     return {"ok": True, "message": "Test stopped"}
+
+
+# =============================================================
+# Coding Agent (claw-code-agent)  ── SSE streaming
+# =============================================================
+_AGENT_CWD = os.path.dirname(os.path.abspath(__file__))
+
+
+@app.post("/api/agent/chat")
+def agent_chat(
+    prompt: str = Form(...),
+    model: str = Form(DEFAULT_AGENT_MODEL),
+):
+    """
+    Run the coding agent with the given prompt and stream events
+    (thinking, assistant text, tool calls, results, done) as SSE.
+    """
+    from pathlib import Path
+
+    cwd = Path(_AGENT_CWD)
+    return StreamingResponse(
+        run_agent_streaming(model=model, prompt=prompt, cwd=cwd),
+        media_type="text/event-stream",
+    )
+
+
+@app.post("/api/agent/reset")
+def agent_reset(model: str = Form(DEFAULT_AGENT_MODEL)):
+    """Reset the coding agent session for a given model."""
+    claw_reset_agent(model)
+    return {"ok": True}

@@ -122,6 +122,7 @@ Desktop.ini
 backend/chats/
 backend/images/
 backend/reports/
+backend/.port_sessions/
 chats/
 images/
 reports/
