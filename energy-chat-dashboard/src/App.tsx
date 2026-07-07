@@ -313,7 +313,10 @@ export default function App() {
     setTotalEnergyPct(0);
     setLitresWater(0);
 
-    // 5) Remount ChatPane to reset its internal state (files, chat name, etc.)
+    // 5) Clear persisted chat so the remounted ChatPane starts fresh
+    try { localStorage.removeItem("ai4all.chat.messages"); } catch { /* ignore */ }
+
+    // 6) Remount ChatPane to reset its internal state (files, chat name, etc.)
     setChatKey((k) => k + 1);
   }
 
@@ -332,7 +335,7 @@ export default function App() {
     }, [tab, autoLoadModel]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const hasSidebar = study.group === "intervention";
-    const showSidebar = hasSidebar && tab === "chat";
+    const showSidebar = hasSidebar;
 
     const vibeModel =
         modeOverrides.vibe_coding || modeDefaults?.vibe_coding?.default;

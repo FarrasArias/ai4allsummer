@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import ChatHistory from "./ChatHistory";
 import ChatInput from "./ChatInput";
-import { streamChat, listChats, saveChat, loadChat, getPinnedChats, togglePinnedChat, searchChats, resetChatSession, type SearchResult, type InferenceMetrics } from "../api";
+import { streamChat, streamAgentChat, resetAgent, listChats, saveChat, loadChat, getPinnedChats, togglePinnedChat, searchChats, resetChatSession, type SearchResult, type InferenceMetrics, type AgentEvent } from "../api";
 import { useTip } from "./TipContext";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
@@ -33,9 +33,16 @@ export default function ChatPane({
 }: Props) {
     const { showTip } = useTip();
 
-    const [messages, setMessages] = useState<Msg[]>([
-        { role: "bot", text: "Hi! Ask me anything." },
-    ]);
+    const [messages, setMessages] = useState<Msg[]>(() => {
+        try {
+            const saved = localStorage.getItem("ai4all.chat.messages");
+            if (saved) {
+                const parsed = JSON.parse(saved) as Msg[];
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+        } catch { /* ignore */ }
+        return [{ role: "bot", text: "Hi! Ask me anything." }];
+    });
 
     const [files, setFiles] = useState<File[]>([]);
     const [chats, setChats] = useState<string[]>([]);
@@ -45,7 +52,9 @@ export default function ChatPane({
     const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
     const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("fast");
+    const [agentMode, setAgentMode] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false);
+    const agentAbortRef = useRef<(() => void) | null>(null);
     // True between when a prompt is sent and when the first delta token arrives —
     // during this window the model may still be loading into GPU.
     const [waitingForFirstDelta, setWaitingForFirstDelta] = useState(false);
@@ -74,6 +83,13 @@ export default function ChatPane({
     useEffect(() => {
         onHistoryChange?.(messages);
     }, [messages, onHistoryChange]);
+
+    // Auto-persist chat to localStorage so it survives page refresh
+    useEffect(() => {
+        try {
+            localStorage.setItem("ai4all.chat.messages", JSON.stringify(messages));
+        } catch { /* quota exceeded — non-fatal */ }
+    }, [messages]);
 
     // Auto-load: when the active model changes (thinking mode toggle, or prop change),
     // tell App to preload it so the GPU is warm before the first prompt.
@@ -113,58 +129,106 @@ export default function ChatPane({
         // Add user message and start streaming response
         setMessages((m) => [...m, { role: "user", text }]);
         setIsStreaming(true);
-        setWaitingForFirstDelta(true); // model may need to load before first token
+        setWaitingForFirstDelta(true);
 
-        let acc = "";
-        let firstDeltaReceived = false;
-        try {
-            const metrics = await streamChat(
-                { prompt: text, model: activeModel, files, thinkingMode },
-                (delta: string) => {
-                    if (!firstDeltaReceived) {
-                        firstDeltaReceived = true;
-                        setWaitingForFirstDelta(false); // model is loaded, now generating
+        if (agentMode) {
+            // ── Agent mode: use claw agent with tool calling ──
+            let acc = "";
+            const abort = streamAgentChat(
+                { prompt: text, model: activeModel },
+                (event: AgentEvent) => {
+                    if (event.type === "thinking") {
+                        setWaitingForFirstDelta(false);
+                        return;
                     }
-                    acc += delta;
+                    if (event.type === "assistant") {
+                        setWaitingForFirstDelta(false);
+                        acc += event.content;
+                    } else if (event.type === "tool_start") {
+                        setWaitingForFirstDelta(false);
+                        const argsPreview = Object.entries(event.args || {})
+                            .map(([k, v]) => `${k}: ${String(v).slice(0, 80)}`)
+                            .join(", ");
+                        acc += `\n\n> **Tool:** \`${event.tool}\` ${argsPreview ? `— ${argsPreview}` : ""}\n`;
+                    } else if (event.type === "tool_result") {
+                        const status = event.ok ? "OK" : "FAILED";
+                        const preview = (event.content || "").slice(0, 200);
+                        acc += `> Result (${status}): ${preview}${event.content?.length > 200 ? "…" : ""}\n\n`;
+                    } else if (event.type === "error") {
+                        acc += `\n\n**Error:** ${event.error}\n`;
+                    }
                     setMessages((m) => {
                         const withoutBotTail =
                             m[m.length - 1]?.role === "bot" ? m.slice(0, -1) : m;
                         return [...withoutBotTail, { role: "bot", text: acc }];
                     });
                 },
-            );
-            // Update the last bot message with metrics once streaming completes
-            if (metrics) {
-                setMessages((m) => {
-                    const lastIdx = m.length - 1;
-                    if (lastIdx >= 0 && m[lastIdx].role === "bot") {
-                        const updated = [...m];
-                        updated[lastIdx] = { ...updated[lastIdx], metrics };
-                        return updated;
-                    }
-                    return m;
-                });
-            }
-
-            // Demo tip trigger: "Who is Steve?"
-            if (/who is steve/i.test(trimmed)) {
-                showTip(
-                    "Steve is the inventor of Python. He alongside Vanessa Utz co-created the iPhone too.",
-                    20000,
-                );
-            }
-        } catch (err) {
-            console.error(err);
-            setMessages((m) => [
-                ...m,
-                {
-                    role: "bot",
-                    text: "Sorry, something went wrong while generating a response.",
+                () => {
+                    setIsStreaming(false);
+                    setWaitingForFirstDelta(false);
                 },
-            ]);
-        } finally {
-            setIsStreaming(false);
-            setWaitingForFirstDelta(false); // always clean up
+                (err) => {
+                    console.error(err);
+                    setMessages((m) => [
+                        ...m,
+                        { role: "bot", text: "Agent error: " + err },
+                    ]);
+                    setIsStreaming(false);
+                    setWaitingForFirstDelta(false);
+                },
+            );
+            agentAbortRef.current = abort;
+        } else {
+            // ── Regular chat mode ──
+            let acc = "";
+            let firstDeltaReceived = false;
+            try {
+                const metrics = await streamChat(
+                    { prompt: text, model: activeModel, files, thinkingMode },
+                    (delta: string) => {
+                        if (!firstDeltaReceived) {
+                            firstDeltaReceived = true;
+                            setWaitingForFirstDelta(false);
+                        }
+                        acc += delta;
+                        setMessages((m) => {
+                            const withoutBotTail =
+                                m[m.length - 1]?.role === "bot" ? m.slice(0, -1) : m;
+                            return [...withoutBotTail, { role: "bot", text: acc }];
+                        });
+                    },
+                );
+                if (metrics) {
+                    setMessages((m) => {
+                        const lastIdx = m.length - 1;
+                        if (lastIdx >= 0 && m[lastIdx].role === "bot") {
+                            const updated = [...m];
+                            updated[lastIdx] = { ...updated[lastIdx], metrics };
+                            return updated;
+                        }
+                        return m;
+                    });
+                }
+
+                if (/who is steve/i.test(trimmed)) {
+                    showTip(
+                        "Steve is the inventor of Python. He alongside Vanessa Utz co-created the iPhone too.",
+                        20000,
+                    );
+                }
+            } catch (err) {
+                console.error(err);
+                setMessages((m) => [
+                    ...m,
+                    {
+                        role: "bot",
+                        text: "Sorry, something went wrong while generating a response.",
+                    },
+                ]);
+            } finally {
+                setIsStreaming(false);
+                setWaitingForFirstDelta(false);
+            }
         }
     }
 
@@ -245,11 +309,14 @@ export default function ChatPane({
 
     // Clear chat history (keeps files) — also resets server-side conversation memory
     function handleClearChat() {
-        // Reset backend history immediately (fire-and-forget; errors are non-fatal)
         if (activeModel) {
             resetChatSession(activeModel).catch(() => {/* ignore */});
+            if (agentMode) {
+                resetAgent(activeModel).catch(() => {/* ignore */});
+            }
         }
         setMessages([{ role: "bot", text: "Hi! Ask me anything." }]);
+        try { localStorage.removeItem("ai4all.chat.messages"); } catch { /* ignore */ }
     }
 
     // Toggle pin status for a chat
@@ -329,18 +396,18 @@ export default function ChatPane({
                                 flexWrap: "wrap",
                             }}
                         >
-                            <span style={{ fontWeight: 500 }}>Thinking mode:</span>
+                            <span style={{ fontWeight: 500 }}>Mode:</span>
                             <div style={{ display: "inline-flex", gap: 4 }}>
                                 <button
                                     type="button"
-                                    onClick={() => setThinkingMode("fast")}
+                                    onClick={() => { setAgentMode(false); setThinkingMode("fast"); }}
                                     style={{
                                         padding: "4px 8px",
                                         borderRadius: 999,
                                         border: "1px solid var(--border-subtle, #ccc)",
                                         fontSize: 12,
-                                        fontWeight: thinkingMode === "fast" ? 600 : 400,
-                                        opacity: thinkingMode === "fast" ? 1 : 0.8,
+                                        fontWeight: !agentMode && thinkingMode === "fast" ? 600 : 400,
+                                        opacity: !agentMode && thinkingMode === "fast" ? 1 : 0.8,
                                         cursor: "pointer",
                                     }}
                                 >
@@ -348,28 +415,48 @@ export default function ChatPane({
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => setThinkingMode("deep")}
+                                    onClick={() => { setAgentMode(false); setThinkingMode("deep"); }}
                                     style={{
                                         padding: "4px 8px",
                                         borderRadius: 999,
                                         border: "1px solid var(--border-subtle, #ccc)",
                                         fontSize: 12,
-                                        fontWeight: thinkingMode === "deep" ? 600 : 400,
-                                        opacity: thinkingMode === "deep" ? 1 : 0.8,
+                                        fontWeight: !agentMode && thinkingMode === "deep" ? 600 : 400,
+                                        opacity: !agentMode && thinkingMode === "deep" ? 1 : 0.8,
                                         cursor: "pointer",
                                     }}
                                 >
                                     Deep think
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setAgentMode(true)}
+                                    style={{
+                                        padding: "4px 8px",
+                                        borderRadius: 999,
+                                        border: `1px solid ${agentMode ? "var(--color-accent, #f59e0b)" : "var(--border-subtle, #ccc)"}`,
+                                        fontSize: 12,
+                                        fontWeight: agentMode ? 600 : 400,
+                                        opacity: agentMode ? 1 : 0.8,
+                                        cursor: "pointer",
+                                        background: agentMode ? "var(--color-accent, #f59e0b)" : "transparent",
+                                        color: agentMode ? "#fff" : "inherit",
+                                    }}
+                                >
+                                    Agent
                                 </button>
                             </div>
                         </div>
 
                         <div style={{ fontSize: 12, opacity: 0.8 }}>
                             <span>Active model: {activeModel || "not set"}</span>
-                            {thinkingMode === "deep" && deepModel && (
+                            {agentMode && (
+                                <span style={{ marginLeft: 8, color: "var(--color-accent, #f59e0b)" }}>(Agent... tools enabled)</span>
+                            )}
+                            {!agentMode && thinkingMode === "deep" && deepModel && (
                                 <span style={{ marginLeft: 8, color: "var(--color-accent, #3b82f6)" }}>(Deep)</span>
                             )}
-                            {thinkingMode === "fast" && fastModel && (
+                            {!agentMode && thinkingMode === "fast" && fastModel && (
                                 <span style={{ marginLeft: 8, color: "var(--color-accent, #22c55e)" }}>(Fast)</span>
                             )}
                         </div>

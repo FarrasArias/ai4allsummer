@@ -192,11 +192,11 @@ def run_agent_streaming(
                     "args": _truncate_args(args),
                 })
 
-        def hooked_start_tool(name, tool_call_id, **kw):
-            idx = _orig_start_tool(name, tool_call_id, **kw)
+        def hooked_start_tool(*, name, tool_call_id, **kw):
+            idx = _orig_start_tool(name=name, tool_call_id=tool_call_id, **kw)
             return idx
 
-        def hooked_finalize_tool(index, content="", **kw):
+        def hooked_finalize_tool(index, *, content="", **kw):
             _orig_finalize_tool(index, content=content, **kw)
             # Extract tool name from the message
             try:

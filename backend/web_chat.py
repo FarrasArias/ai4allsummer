@@ -22,9 +22,10 @@ from utilities.prompt_config import get_system_prompt
 
 
 # ============================================================
-# HARD-CODED API KEY (DO NOT COMMIT REAL KEYS)
+# API KEY â€” loaded from OLLAMA_WEB_API_KEY env var
 # ============================================================
-API_KEY = "7a3a55dc629c4d68b29c9260b925d9a7.Opq13wpJzxzO4oCmQ1AkBRrn"
+import os
+API_KEY = os.environ.get("OLLAMA_WEB_API_KEY", "")
 
 
 # ============================================================
@@ -203,7 +204,7 @@ class WebChatSession:
             # Save assistant message
             self.messages.append(response.message)
 
-            # If no tools requested, we’re done
+            # If no tools requested, weï¿½re done
             tool_calls = getattr(response.message, "tool_calls", None)
             if not tool_calls:
                 break
@@ -231,7 +232,7 @@ class WebChatSession:
                     )
                     logger.info("Tool %s OK", tool_name)
                 except Exception as e:
-                    # This is where you’ll see 401s, timeouts, etc.
+                    # This is where youï¿½ll see 401s, timeouts, etc.
                     logger.exception("Tool %s FAILED args=%s", tool_name, tool_args)
                     self.messages.append(
                         {

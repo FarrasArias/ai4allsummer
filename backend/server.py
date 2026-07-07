@@ -92,6 +92,81 @@ _latest_chat_model: Optional[str] = None
 _power_thread_started = False
 _power_thread_lock = threading.Lock()
 
+
+class _EnergyMeter:
+    """Measures GPU energy for a single inference call.
+
+    Usage (non-streaming):
+        meter = _EnergyMeter()
+        meter.start()
+        result = do_inference(...)
+        energy_wh, ms = meter.finish()
+
+    Usage (streaming):
+        meter = _EnergyMeter()
+        meter.start()
+        for chunk in stream:
+            meter.sample()
+            yield chunk
+        energy_wh, ms = meter.finish()
+    """
+
+    def __init__(self):
+        self.baseline_w = 0.0
+        self.start_time = 0.0
+        self.samples: list[float] = []
+        self._last_sample_time = 0.0
+
+    def start(self):
+        try:
+            gpu_w, _ = get_gpu_power_usage()
+            if gpu_w:
+                self.baseline_w = gpu_w
+        except Exception:
+            pass
+        self.start_time = time.time()
+        self._last_sample_time = self.start_time
+
+    def sample(self):
+        now = time.time()
+        if now - self._last_sample_time >= 0.2:
+            try:
+                gpu_w, _ = get_gpu_power_usage()
+                if gpu_w:
+                    self.samples.append(gpu_w)
+            except Exception:
+                pass
+            self._last_sample_time = now
+
+    def finish(self) -> tuple[float, float]:
+        global _latest_prompt_Wh, _session_total_Wh, _calculated_accumulator
+
+        try:
+            gpu_w, _ = get_gpu_power_usage()
+            if gpu_w:
+                self.samples.append(gpu_w)
+        except Exception:
+            pass
+
+        elapsed_s = time.time() - self.start_time
+        inference_time_ms = int(elapsed_s * 1000)
+
+        if self.samples:
+            avg_power_w = sum(self.samples) / len(self.samples)
+        elif self.baseline_w > 0:
+            avg_power_w = self.baseline_w
+        else:
+            avg_power_w = 0.0
+
+        idle_w = self.baseline_w if self.baseline_w > 0 else _normal_consumption
+        energy_wh = max(0.0, (avg_power_w - idle_w) * elapsed_s / 3600.0)
+
+        _latest_prompt_Wh = energy_wh
+        _session_total_Wh += energy_wh
+        _calculated_accumulator = 0.0
+
+        return energy_wh, inference_time_ms
+
 # Per-model chat engines to preserve memory per model
 _CHAT_ENGINES: dict[str, OllamaChat] = {}
 _CHAT_ENGINES_LOCK = threading.Lock()
@@ -367,85 +442,29 @@ def chat(
             print(f"Error loading document {path}: {e}")
 
     def _gen() -> AsyncGenerator[bytes, None]:
-        global _latest_chat_model, _latest_prompt_Wh, _session_total_Wh
+        global _latest_chat_model
         _ensure_power_thread()
         _llm_running_flag["mode"] = "Chat"
         _latest_chat_model = model
 
-        # ── Per-prompt energy measurement ──
-        # Take one baseline reading BEFORE inference (GPU is idle).
-        # Then sample every ~0.2s DURING streaming to capture active power.
-        baseline_w = 0.0
-        try:
-            gpu_w, _ = get_gpu_power_usage()
-            if gpu_w:
-                baseline_w = gpu_w
-        except Exception:
-            pass
-
-        start_time = time.time()
-        last_sample_time = start_time
-        inference_samples: list[float] = []   # only samples taken DURING inference
+        meter = _EnergyMeter()
+        meter.start()
 
         try:
-            # Stream chunks from the shared chat engine (with memory + docs)
             for chunk in engine.stream_chat(prompt, thinking_mode=thinking_mode):
                 payload = {"delta": chunk}
                 yield f"data: {json.dumps(payload)}\n\n".encode("utf-8")
-
-                # Sample GPU power every ~0.2s during streaming
-                now = time.time()
-                if now - last_sample_time >= 0.2:
-                    try:
-                        gpu_w, _ = get_gpu_power_usage()
-                        if gpu_w:
-                            inference_samples.append(gpu_w)
-                    except Exception:
-                        pass
-                    last_sample_time = now
+                meter.sample()
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
         finally:
             _llm_running_flag["mode"] = "None"
+            energy_wh, inference_time_ms = meter.finish()
 
-            # One more sample right after inference finishes (GPU still warm)
-            try:
-                gpu_w, _ = get_gpu_power_usage()
-                if gpu_w:
-                    inference_samples.append(gpu_w)
-            except Exception:
-                pass
-
-            # Calculate inference time
-            elapsed_s = time.time() - start_time
-            inference_time_ms = int(elapsed_s * 1000)
-
-            # Compute per-prompt energy:
-            #   energy = (avg_inference_power − idle_baseline) × time
-            # If we captured mid-stream samples, use their average.
-            # Otherwise fall back to (final_sample − baseline) as a rough estimate.
-            if inference_samples:
-                avg_power_w = sum(inference_samples) / len(inference_samples)
-            elif baseline_w > 0:
-                # Very short prompt — no mid-stream samples captured.
-                # Use baseline as a rough proxy (better than 0).
-                avg_power_w = baseline_w
-            else:
-                avg_power_w = 0.0
-
-            # Use the pre-inference baseline as idle reference; fall back to
-            # the background thread's running average if we couldn't read it.
-            idle_w = baseline_w if baseline_w > 0 else _normal_consumption
-            prompt_energy_wh = max(0.0, (avg_power_w - idle_w) * elapsed_s / 3600.0)
-
-            _latest_prompt_Wh = prompt_energy_wh
-            _session_total_Wh += prompt_energy_wh
-
-            # Tell the client we're done, include metrics
             done_payload = {
                 "done": True,
                 "inference_time_ms": inference_time_ms,
-                "energy_wh": prompt_energy_wh,
+                "energy_wh": energy_wh,
                 "input_tokens": engine._last_prompt_eval_count,
                 "output_tokens": engine._last_eval_count,
                 "user_prompt_tokens": engine._last_user_prompt_tokens,
@@ -516,13 +535,16 @@ def vibe_code(
         try:
             engine.load_code_file(path)
         except Exception as e:
-            # Non-fatal: still answer the question
             print(f"Error loading code file {path}: {e}")
 
+    meter = _EnergyMeter()
+    meter.start()
     try:
         reply = engine.code(prompt, stream=False)
-        return {"ok": True, "response": reply}
+        energy_wh, inference_time_ms = meter.finish()
+        return {"ok": True, "response": reply, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
     except Exception as e:
+        meter.finish()
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
     finally:
         _llm_running_flag["mode"] = "None"
@@ -567,10 +589,14 @@ def web_chat_endpoint(
 
     session = _get_web_session(model)
 
+    meter = _EnergyMeter()
+    meter.start()
     try:
         reply = session.ask(prompt)
-        return {"ok": True, "response": reply}
+        energy_wh, inference_time_ms = meter.finish()
+        return {"ok": True, "response": reply, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
     except Exception as e:
+        meter.finish()
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
     finally:
         _llm_running_flag["mode"] = "None"
@@ -621,6 +647,8 @@ def image_gen_endpoint(
     engine = _get_imggen_engine(model)
     do_enhance = enhance.lower() in ("true", "1", "yes")
 
+    meter = _EnergyMeter()
+    meter.start()
     try:
         result = engine.generate(
             prompt=prompt,
@@ -631,16 +659,21 @@ def image_gen_endpoint(
             cfg_scale=cfg_scale,
             enhance=do_enhance,
         )
+        energy_wh, inference_time_ms = meter.finish()
         return {
             "ok": True,
             "image_b64": result["image_b64"],
             "prompt_used": result["prompt_used"],
             "original_prompt": result["original_prompt"],
             "parameters": result["parameters"],
+            "energy_wh": energy_wh,
+            "inference_time_ms": inference_time_ms,
         }
     except ConnectionError as e:
+        meter.finish()
         return JSONResponse({"ok": False, "error": str(e)}, status_code=503)
     except Exception as e:
+        meter.finish()
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
     finally:
         _llm_running_flag["mode"] = "None"
@@ -699,6 +732,9 @@ def analyze_image(
         _llm_running_flag["mode"] = "Image"
         _latest_image_meta.update({"date": get_datetime(), "model": model})
 
+        meter = _EnergyMeter()
+        meter.start()
+
         try:
             r = requests.post(
                 "http://localhost:11434/api/generate",
@@ -720,6 +756,7 @@ def analyze_image(
             for line in r.iter_lines():
                 if not line:
                     continue
+                meter.sample()
                 try:
                     payload = json.loads(line)
                     if "response" in payload:
@@ -733,7 +770,9 @@ def analyze_image(
             yield f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
         finally:
             _llm_running_flag["mode"] = "None"
-            yield b'data: {"done": true}\n\n'
+            energy_wh, inference_time_ms = meter.finish()
+            done_payload = {"done": True, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
+            yield f"data: {json.dumps(done_payload)}\n\n".encode("utf-8")
 
     return StreamingResponse(_gen(), media_type="text/event-stream")
 
@@ -1082,7 +1121,7 @@ def test_stop():
 # =============================================================
 # Coding Agent (claw-code-agent)  ── SSE streaming
 # =============================================================
-_AGENT_CWD = os.path.dirname(os.path.abspath(__file__))
+_AGENT_CWD = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 @app.post("/api/agent/chat")
@@ -1097,8 +1136,27 @@ def agent_chat(
     from pathlib import Path
 
     cwd = Path(_AGENT_CWD)
+
+    def _gen_with_energy():
+        global _latest_chat_model
+        _ensure_power_thread()
+        _llm_running_flag["mode"] = "Chat"
+        _latest_chat_model = model
+
+        meter = _EnergyMeter()
+        meter.start()
+        try:
+            for chunk in run_agent_streaming(model=model, prompt=prompt, cwd=cwd):
+                meter.sample()
+                yield chunk
+        finally:
+            _llm_running_flag["mode"] = "None"
+            energy_wh, inference_time_ms = meter.finish()
+            payload = {"type": "energy", "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
+            yield f"data: {json.dumps(payload)}\n\n".encode("utf-8")
+
     return StreamingResponse(
-        run_agent_streaming(model=model, prompt=prompt, cwd=cwd),
+        _gen_with_energy(),
         media_type="text/event-stream",
     )
 
