@@ -15,5 +15,8 @@
   },
   "image_gen": {
     "default": "qwen2.5:7b"
+  },
+  "embedding": {
+    "default": "nomic-embed-text"
   }
 }

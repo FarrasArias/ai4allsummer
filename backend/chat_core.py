@@ -3,12 +3,14 @@
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import ollama
 import PyPDF2
 import docx
 import pandas as pd
+
+from utilities.rag_store import RagStore
 
 # Logging setup
 logging.basicConfig(
@@ -31,14 +33,19 @@ class OllamaChat:
         self.model = model
         self.max_context_tokens = max_context_tokens
 
-        # Full conversation history: list of {"role": "user"|"assistant", "content": "..."}
-        self.conversation_history: List[Dict[str, str]] = []
+        # Full conversation history: list of {"role": ..., "content": ...}
+        # (user messages may also carry an "images" list of base64 strings)
+        self.conversation_history: List[Dict[str, object]] = []
 
-        # Concatenated text of all loaded documents
+        # Concatenated text of all loaded documents (fallback when RAG is unavailable)
         self.document_context: str = ""
 
         # Names of loaded files
         self.loaded_files: List[str] = []
+
+        # RAG store: uploaded documents are chunked + embedded here, and only
+        # the chunks relevant to each question are injected into the prompt
+        self.rag = RagStore()
 
         # Token counts from the most recent streaming response
         self._last_eval_count: int = 0
@@ -70,7 +77,12 @@ class OllamaChat:
         Compute current document + conversation token usage.
         """
         doc_tokens = self._estimate_tokens(self.document_context)
-        conv_tokens = self._estimate_tokens(json.dumps(self.conversation_history))
+        # Estimate from message text only — base64 image payloads would
+        # massively inflate a character-based token estimate
+        conv_text = " ".join(
+            str(m.get("content", "") or "") for m in self.conversation_history
+        )
+        conv_tokens = self._estimate_tokens(conv_text)
         total_tokens = doc_tokens + conv_tokens
 
         return {
@@ -166,6 +178,11 @@ class OllamaChat:
         if not path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
+        # The frontend re-sends loaded files with every prompt — skip
+        # re-indexing a document we already have
+        if path.name in self.loaded_files:
+            return {"filename": path.name, "skipped": True}
+
         # Size in MB (for logging / UX)
         file_size_mb = path.stat().st_size / (1024 * 1024)
         if file_size_mb > 10:
@@ -187,15 +204,19 @@ class OllamaChat:
             else:
                 raise ValueError(f"Unsupported file type: {suffix}")
 
-            # Append to global document context
-            banner = (
-                "\n\n"
-                + "=" * 60
-                + f"\n=== Document: {path.name} ===\n"
-                + "=" * 60
-                + "\n"
-            )
-            self.document_context += banner + content
+            # Prefer RAG indexing: chunks are embedded now and only the
+            # relevant ones are retrieved per question. If embeddings are
+            # unavailable, fall back to stuffing the full text into context.
+            rag_info = self.rag.add_document(path.name, content)
+            if rag_info is None:
+                banner = (
+                    "\n\n"
+                    + "=" * 60
+                    + f"\n=== Document: {path.name} ===\n"
+                    + "=" * 60
+                    + "\n"
+                )
+                self.document_context += banner + content
             self.loaded_files.append(path.name)
 
             context_info = self._check_context_size()
@@ -207,6 +228,7 @@ class OllamaChat:
                 "chars": len(content),
                 "estimated_tokens": estimated_tokens,
                 "context_utilization": f"{context_info['utilization_pct']:.1f}%",
+                "rag_chunks": rag_info.get("chunks") if rag_info else None,
             }
 
             logger.info(
@@ -231,6 +253,7 @@ class OllamaChat:
         """
         self.document_context = ""
         self.loaded_files = []
+        self.rag.clear()
         logger.info("✓ Cleared all documents")
 
     # -------------
@@ -250,17 +273,19 @@ class OllamaChat:
         self.conversation_history = []
         self.document_context = ""
         self.loaded_files = []
+        self.rag.clear()
         logger.info("✓ Reset complete")
 
-    def _build_messages(self) -> List[Dict[str, str]]:
+    def _build_messages(self, retrieved_context: str = "") -> List[Dict[str, object]]:
         """
         Build the list of messages to send to Ollama, including:
 
           - One system message with base study instructions (always).
-          - Optional document context if any docs are loaded.
+          - Retrieved document excerpts (RAG) for the current question, if any;
+            otherwise the full document context (legacy fallback).
           - Full conversation history (user + assistant turns).
         """
-        messages: List[Dict[str, str]] = []
+        messages: List[Dict[str, object]] = []
 
         # Base study + no-charts instruction (always on)
         base_system = (
@@ -271,7 +296,16 @@ class OllamaChat:
             "with a written/text explanation instead."
         )
 
-        if self.document_context:
+        if retrieved_context:
+            doc_system = (
+                "Relevant excerpts retrieved from the user's uploaded documents are "
+                "shown below. Use them to answer when relevant, and mention which "
+                "document you are referencing. If the excerpts don't contain the "
+                "answer, use your general knowledge to help the user.\n\n"
+                f"{retrieved_context}"
+            )
+            system_content = base_system + "\n\n" + doc_system
+        elif self.document_context:
             doc_system = (
                 "You have access to the following documents. Use them to answer "
                 "questions when relevant. If the documents don't contain the answer, "
@@ -289,7 +323,12 @@ class OllamaChat:
         return messages
 
 
-    def chat(self, user_message: str, temperature: float = 0.7) -> str:
+    def chat(
+        self,
+        user_message: str,
+        temperature: float = 0.7,
+        images: Optional[List[str]] = None,
+    ) -> str:
         """
         Non-streaming chat convenience method.
 
@@ -303,12 +342,19 @@ class OllamaChat:
                 "Context near limit – consider clearing history or documents."
             )
 
-        # Append user message to history
-        self.conversation_history.append(
-            {"role": "user", "content": user_message}
-        )
+        # Retrieve document excerpts relevant to this question (RAG)
+        retrieved_context = ""
+        if self.rag.has_documents():
+            retrieved_context = self.rag.build_context(user_message)
 
-        messages = self._build_messages()
+        # Append user message to history (images are base64 strings and
+        # require a vision-capable model, e.g. qwen2.5vl)
+        user_msg: Dict[str, object] = {"role": "user", "content": user_message}
+        if images:
+            user_msg["images"] = images
+        self.conversation_history.append(user_msg)
+
+        messages = self._build_messages(retrieved_context)
 
         try:
             response = ollama.chat(
@@ -333,7 +379,12 @@ class OllamaChat:
                 self.conversation_history.pop()
             raise
 
-    def stream_chat(self, user_message: str, thinking_mode: str = "fast"):
+    def stream_chat(
+        self,
+        user_message: str,
+        thinking_mode: str = "fast",
+        images: Optional[List[str]] = None,
+    ):
         """
         Streaming chat generator for use by servers:
 
@@ -341,6 +392,8 @@ class OllamaChat:
               ...
 
         - thinking_mode controls generation style (fast vs deep) for the SAME model.
+        - images: optional base64-encoded images attached to this message
+          (requires a vision-capable model, e.g. qwen2.5vl).
         """
         context_info = self._check_context_size()
         if context_info["utilization_pct"] > 90:
@@ -365,12 +418,20 @@ class OllamaChat:
             num_predict = -1
             think = False
 
+        # Retrieve document excerpts relevant to this question (RAG).
+        # This embeds the query on the GPU, so it happens inside the
+        # energy-metered window in server.py.
+        retrieved_context = ""
+        if self.rag.has_documents():
+            retrieved_context = self.rag.build_context(user_message)
+
         # Append user message, then build messages
-        self.conversation_history.append(
-            {"role": "user", "content": user_message}
-        )
+        user_msg: Dict[str, object] = {"role": "user", "content": user_message}
+        if images:
+            user_msg["images"] = images
+        self.conversation_history.append(user_msg)
         self._last_user_prompt_tokens = self._estimate_tokens(user_message)
-        messages = self._build_messages()
+        messages = self._build_messages(retrieved_context)
 
         full_response = ""
 

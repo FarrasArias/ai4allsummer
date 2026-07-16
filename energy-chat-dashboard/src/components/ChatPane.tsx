@@ -20,6 +20,9 @@ type Props = {
 
 type ThinkingMode = "fast" | "deep";
 
+// Uploads matching this are sent as vision inputs, not documents
+const IMAGE_FILE_RE = /\.(png|jpe?g|webp|gif|bmp)$/i;
+
 export default function ChatPane({
     model,
     fastModel,
@@ -228,6 +231,10 @@ export default function ChatPane({
             } finally {
                 setIsStreaming(false);
                 setWaitingForFirstDelta(false);
+                // Images are now part of the server-side conversation history;
+                // drop them so they aren't re-sent with the next prompt.
+                // (Documents stay attached — the backend dedupes re-uploads.)
+                setFiles((prev) => prev.filter((f) => !IMAGE_FILE_RE.test(f.name)));
             }
         }
     }
@@ -475,7 +482,7 @@ export default function ChatPane({
                             ref={fileInputRef}
                             type="file"
                             multiple
-                            accept=".pdf,.txt,.docx,.csv"
+                            accept=".pdf,.txt,.docx,.csv,.png,.jpg,.jpeg,.webp,.gif,.bmp"
                             onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
                         />
                         {files.length > 0 && (
@@ -483,6 +490,11 @@ export default function ChatPane({
                                 <span style={{ fontSize: 12, opacity: 0.8 }}>
                                     {files.length} file{files.length > 1 ? "s" : ""}: {files.map(f => f.name).join(", ")}
                                 </span>
+                                {files.some((f) => IMAGE_FILE_RE.test(f.name)) && (
+                                    <span style={{ fontSize: 11, opacity: 0.7 }}>
+                                        (images need a vision model, e.g. qwen2.5vl:7b)
+                                    </span>
+                                )}
                                 <button type="button" onClick={handleClearFiles} title="Clear loaded files">
                                     Clear files
                                 </button>

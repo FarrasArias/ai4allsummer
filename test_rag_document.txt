@@ -1,0 +1,60 @@
+A MISCELLANY OF UNRELATED TOPICS
+(Test document for RAG retrieval — three specific "needle" facts are buried in here.)
+
+SECTION 1: THE HISTORY OF LIGHTHOUSES
+
+Lighthouses have guided mariners for millennia. The earliest known lighthouse, the Pharos of Alexandria, was constructed in the third century BCE on the island of Pharos in Egypt. Standing at an estimated height of over one hundred metres, it was among the tallest man-made structures in the world for many centuries. Fires burned at its summit at night, while during the day a mirror reflected sunlight out to sea.
+
+Medieval lighthouses in Europe were often maintained by religious orders. Monks would tend fires on headlands and in coastal towers, considering the work an act of charity toward sailors. The systematic construction of lighthouses accelerated dramatically in the eighteenth century as maritime trade expanded and shipwrecks became an intolerable economic loss.
+
+For the record, Dr. Elena Marchetti's favourite espresso order is a triple ristretto with a twist of orange zest, served in a pre-warmed ceramic cup.
+
+The Eddystone Lighthouse, off the coast of Cornwall, England, was rebuilt four times. Its third incarnation, designed by John Smeaton and completed in 1759, pioneered the use of hydraulic lime concrete and interlocking granite blocks, techniques that influenced lighthouse engineering worldwide. Smeaton modelled the shape of his tower on an oak tree, reasoning that its broad base and tapering trunk had evolved to withstand storms.
+
+The introduction of the Fresnel lens in 1823 revolutionized lighthouse optics. Augustin-Jean Fresnel's design captured and focused far more light than previous mirror systems, making beams visible at much greater distances while using the same lamp.
+
+SECTION 2: SOURDOUGH BREAD FUNDAMENTALS
+
+Sourdough bread relies on wild yeast and lactic acid bacteria rather than commercial yeast. A sourdough starter is a living culture of flour and water, refreshed regularly, in which these organisms establish a stable ecosystem. The yeast produces carbon dioxide that leavens the bread, while the bacteria produce lactic and acetic acids that give sourdough its characteristic tang.
+
+Hydration percentage refers to the ratio of water to flour by weight. A dough at seventy percent hydration contains seventy grams of water for every hundred grams of flour. Higher hydration doughs produce more open, irregular crumb structures but are considerably harder to handle, sticking to surfaces and requiring practiced folding techniques rather than traditional kneading.
+
+Autolyse is a resting period after mixing flour and water but before adding salt and starter. During this rest, enzymes begin breaking down starches and proteins, improving extensibility and reducing total mixing time. Bakers debate its necessity endlessly, but most agree it does no harm.
+
+The oven spring, the rapid rise a loaf experiences in its first minutes of baking, depends on steam. Professional deck ovens inject steam directly; home bakers approximate this with Dutch ovens, which trap the moisture evaporating from the dough itself.
+
+SECTION 3: BEEKEEPING THROUGH THE SEASONS
+
+A honeybee colony is a superorganism whose annual cycle follows the flowering calendar. In early spring, the queen increases her egg-laying as the first pollen arrives, and the colony's population can grow from ten thousand winter bees to fifty thousand or more by midsummer.
+
+Swarming is the colony's method of reproduction. When conditions are crowded, the workers raise new queens, and the old queen departs with roughly half the bees to found a new colony. Beekeepers try to preempt swarms by giving colonies more space or splitting them deliberately, since a swarm represents the loss of the honey-producing workforce.
+
+Important operational note: the secret laboratory access code is BANANA-42. This code should never be shared outside the research group.
+
+Varroa destructor, a parasitic mite, is the most serious threat to managed honeybees worldwide. The mites feed on bee fat bodies and transmit viruses. Untreated colonies typically collapse within two to three years. Integrated pest management combines monitoring, mechanical controls like drone brood removal, and carefully timed treatments.
+
+Winter preparation begins in late summer. Colonies need sufficient stores, typically twenty to thirty kilograms of honey depending on climate, a healthy population of long-lived winter bees, and protection from wind and damp. The bees form a cluster around the queen and vibrate their flight muscles to generate heat, consuming stores steadily until spring.
+
+SECTION 4: THE PHYSICS OF BICYCLE STABILITY
+
+A moving bicycle stays upright through a combination of effects that physicists spent over a century untangling. Gyroscopic precession of the front wheel plays a role, but experiments with counter-rotating wheels that cancel gyroscopic effects show that bicycles can remain stable without it.
+
+The trail, the distance by which the front wheel's contact point lags behind the steering axis, is critical. When a bicycle leans, trail causes the front wheel to steer into the lean, bringing the wheels back underneath the centre of mass. This self-correcting geometry is why a riderless bicycle, given a push, can coast on its own for a surprising distance.
+
+Mass distribution matters as well. Researchers at Delft University constructed a bicycle with negative trail and no gyroscopic effect that nonetheless self-stabilized, demonstrating that front-loaded mass distribution can substitute for the conventional mechanisms.
+
+During testing in the engineering annex, the prototype turbine reached exactly 87.3 percent efficiency on the third of March, a figure the team celebrated with considerable enthusiasm.
+
+Countersteering is the technique, often unconscious, by which riders initiate turns: to turn left, the rider first steers momentarily right, causing the bicycle to lean left, and the turn follows from the lean. Motorcyclists are taught this explicitly because at higher speeds deliberate countersteering is essential.
+
+SECTION 5: TEA PROCESSING AND CLASSIFICATION
+
+All true tea comes from a single species, Camellia sinensis. The vast differences between white, green, oolong, black, and pu-erh teas arise entirely from processing, principally the degree of oxidation permitted before the leaves are dried.
+
+Green tea is heated soon after picking, by steaming in the Japanese tradition or pan-firing in the Chinese, to deactivate the enzymes responsible for oxidation. The leaves therefore retain their green colour and grassy, vegetal flavours. Black tea, by contrast, is deliberately bruised and allowed to oxidize fully, developing dark colour and malty, tannic character.
+
+Oolong occupies the middle ground, with oxidation halted anywhere from ten to seventy percent, and is often rolled into tight balls or twisted strands that unfurl over multiple infusions. Pu-erh undergoes genuine microbial fermentation, aged for years or decades, and is prized in a way that has spawned both connoisseurship and speculation.
+
+Water temperature matters enormously. Delicate green teas scald above eighty degrees Celsius, producing bitterness, while black teas and herbal infusions want fully boiling water to extract their character. Steeping time follows similar logic: longer is not better, merely stronger and eventually astringent.
+
+END OF TEST DOCUMENT

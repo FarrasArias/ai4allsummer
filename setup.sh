@@ -2,9 +2,10 @@
 set -e
 
 # ============================================================
-#  AI4ALL - One-Time Setup (macOS / Linux)
-#  Run this once after extracting the folder.
-#  It installs all dependencies so the app is ready to use.
+#  AI4ALL - Setup (macOS / Linux)
+#  Run this after extracting the folder, and again after every
+#  update (git pull) — it is safe to re-run and only installs
+#  what is missing or outdated.
 # ============================================================
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -12,8 +13,9 @@ cd "$ROOT"
 
 echo ""
 echo "  ============================================"
-echo "   AI4ALL - One-Time Setup"
+echo "   AI4ALL - Setup"
 echo "  ============================================"
+echo "   (Safe to re-run: anything already installed is skipped)"
 echo ""
 
 # ----------------------------------------------------------
@@ -119,6 +121,15 @@ fi
 
 echo "        Installing Python packages (this may take a minute)..."
 "$ROOT/backend/.venv/bin/pip" install -r "$ROOT/backend/requirements.txt" --quiet
+
+# Create backend/.env from the template on first run
+if [ ! -f "$ROOT/backend/.env" ] && [ -f "$ROOT/backend/.env.example" ]; then
+    cp "$ROOT/backend/.env.example" "$ROOT/backend/.env"
+    echo "        Created backend/.env from template."
+    echo "        (Optional) Edit backend/.env and set OLLAMA_WEB_API_KEY"
+    echo "        to enable web search in the Web tab."
+fi
+
 echo "        Backend ready."
 
 # ----------------------------------------------------------
@@ -161,6 +172,17 @@ else
         echo "  Skipped. You can download models later from the Models tab in the app,"
         echo "  or run:  ollama pull qwen3:1.7b"
     fi
+fi
+
+# Embedding model for document search (RAG). Small download, so no prompt —
+# without it the app falls back to pasting whole documents into the prompt.
+if ollama list 2>/dev/null | grep -qi "nomic-embed-text"; then
+    echo "        Embedding model (nomic-embed-text) is already downloaded."
+else
+    echo ""
+    echo "        Downloading nomic-embed-text (~274 MB) — lets the app search"
+    echo "        uploaded documents efficiently instead of re-reading them fully..."
+    ollama pull nomic-embed-text || echo "  [!] Download failed. Try later: ollama pull nomic-embed-text"
 fi
 
 # Kill the Ollama we started (user will start it properly with start.sh)

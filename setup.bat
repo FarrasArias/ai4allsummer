@@ -2,9 +2,10 @@
 setlocal enabledelayedexpansion
 
 :: ============================================================
-::  AI4ALL - One-Time Setup
-::  Run this once after extracting the folder.
-::  It installs all dependencies so the app is ready to use.
+::  AI4ALL - Setup
+::  Run this after extracting the folder, and again after every
+::  update (git pull) - it is safe to re-run and only installs
+::  what is missing or outdated.
 :: ============================================================
 
 title AI4ALL Setup
@@ -15,8 +16,9 @@ cd /d "%ROOT%"
 
 echo.
 echo  ============================================
-echo   AI4ALL - One-Time Setup
+echo   AI4ALL - Setup
 echo  ============================================
+echo   (Safe to re-run: anything already installed is skipped)
 echo.
 
 :: ----------------------------------------------------------
@@ -184,6 +186,17 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
+
+:: Create backend\.env from the template on first run
+if not exist "%ROOT%backend\.env" (
+    if exist "%ROOT%backend\.env.example" (
+        copy /y "%ROOT%backend\.env.example" "%ROOT%backend\.env" >nul
+        echo         Created backend\.env from template.
+        echo         ^(Optional^) Edit backend\.env and set OLLAMA_WEB_API_KEY
+        echo         to enable web search in the Web tab.
+    )
+)
+
 echo         Backend ready.
 
 :: ----------------------------------------------------------
@@ -254,6 +267,22 @@ if %errorlevel% equ 0 (
 )
 
 :models_done
+
+:: Embedding model for document search (RAG). Small download, so no prompt -
+:: without it the app falls back to pasting whole documents into the prompt.
+ollama list 2>nul | findstr /i "nomic-embed-text" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo         Embedding model ^(nomic-embed-text^) is already downloaded.
+) else (
+    echo.
+    echo         Downloading nomic-embed-text ^(~274 MB^) - lets the app search
+    echo         uploaded documents efficiently instead of re-reading them fully...
+    ollama pull nomic-embed-text
+    if !errorlevel! neq 0 (
+        echo  [!] Download failed. You can try again later with:
+        echo      ollama pull nomic-embed-text
+    )
+)
 
 echo.
 echo  ============================================

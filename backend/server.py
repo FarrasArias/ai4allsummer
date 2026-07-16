@@ -1,5 +1,25 @@
 # server.py
 
+import os
+
+# Load backend/.env into the environment BEFORE importing modules that read
+# env vars at import time (web_chat, rag_store). Shell env vars take
+# precedence over .env values. Tiny parser — no python-dotenv dependency.
+def _load_dotenv():
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
+    except OSError:
+        pass
+
+_load_dotenv()
+
 from image_v1 import DEFAULT_MODEL as IMAGE_DEFAULT_MODEL
 from vibe_coding import DEFAULT_MODEL as VIBE_DEFAULT_MODEL, VibeCodingChat
 from web_chat import DEFAULT_MODEL as WEB_DEFAULT_MODEL, WebChatSession
@@ -35,6 +55,7 @@ CHAT_DEFAULT_MODEL = "qwen3:1.7b"  # Overridden by config if available
 
 import os
 import io
+import base64
 import json
 import time
 import shutil
@@ -75,6 +96,10 @@ from chat_core import OllamaChat
 CHAT_DIR = "chats"
 IMG_DIR = "images"
 REPORTS_DIR = "reports"
+
+# Uploads with these extensions are treated as vision inputs for the chat
+# model rather than as text documents
+IMAGE_UPLOAD_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 os.makedirs(CHAT_DIR, exist_ok=True)
 os.makedirs(IMG_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
@@ -419,8 +444,10 @@ def chat(
     Endpoint signature and path remain unchanged.
     """
 
-    # Persist any uploaded files and add them to this model's document context
+    # Persist uploads: images become vision inputs for this prompt,
+    # other files are added to the model's document context (RAG-indexed)
     context_files: List[str] = []
+    images_b64: List[str] = []
     if files:
         tmpdir = os.path.join(CHAT_DIR, "_tmp")
         os.makedirs(tmpdir, exist_ok=True)
@@ -428,7 +455,12 @@ def chat(
             dst = os.path.join(tmpdir, f.filename)
             with open(dst, "wb") as out:
                 shutil.copyfileobj(f.file, out)
-            context_files.append(dst)
+            ext = os.path.splitext(f.filename)[1].lower()
+            if ext in IMAGE_UPLOAD_EXTS:
+                with open(dst, "rb") as fh:
+                    images_b64.append(base64.b64encode(fh.read()).decode("ascii"))
+            else:
+                context_files.append(dst)
 
     # Get or create the chat engine for this model
     engine = _get_chat_engine(model)
@@ -451,7 +483,11 @@ def chat(
         meter.start()
 
         try:
-            for chunk in engine.stream_chat(prompt, thinking_mode=thinking_mode):
+            for chunk in engine.stream_chat(
+                prompt,
+                thinking_mode=thinking_mode,
+                images=images_b64 or None,
+            ):
                 payload = {"delta": chunk}
                 yield f"data: {json.dumps(payload)}\n\n".encode("utf-8")
                 meter.sample()
