@@ -72,6 +72,7 @@ export function streamChat(
     }: { prompt: string; model: string; files?: File[]; thinkingMode?: ThinkingMode },
     onDelta: (text: string) => void,
     onComplete?: (metrics: InferenceMetrics) => void,
+    onStatus?: (text: string) => void,
 ): Promise<InferenceMetrics | undefined> {
     const body = new FormData();
     body.append("prompt", prompt);
@@ -91,6 +92,7 @@ export function streamChat(
         if (!line.startsWith("data:")) continue;
         const payload = JSON.parse(line.slice(5).trim());
         if (payload.error) throw new Error(payload.error);
+        if (payload.status) onStatus?.(payload.status);
         if (payload.delta) onDelta(payload.delta);
         if (payload.done && payload.inference_time_ms !== undefined) {
           metrics = {
@@ -369,13 +371,84 @@ export async function resetAgent(model: string) {
   return res.json();
 }
 
-// Web chat (tools-enabled, JSON API)
-export async function webChat(opts: { prompt: string; model: string }) {
+// Web chat (tools-enabled) — SSE streaming with orchestration status events
+export type WebChatEvent =
+  | { type: "status"; text: string }
+  | { type: "assistant"; content: string }
+  | { type: "error"; error: string }
+  | { type: "done"; energy_wh?: number; inference_time_ms?: number };
+
+/**
+ * Stream a web-chat turn as SSE events (status traces, assistant text, done).
+ * Returns an abort function.
+ */
+export function streamWebChat(
+  opts: { prompt: string; model: string; files?: File[] },
+  onEvent: (event: WebChatEvent) => void,
+  onDone?: () => void,
+  onError?: (err: string) => void,
+): () => void {
   const body = new FormData();
   body.append("prompt", opts.prompt);
   body.append("model", opts.model);
-  const res = await fetch(`${API_BASE}/api/web/chat`, { method: "POST", body });
-  return res.json();
+  (opts.files ?? []).forEach((f) => body.append("files", f));
+
+  const controller = new AbortController();
+
+  fetch(`${API_BASE}/api/web/chat`, {
+    method: "POST",
+    body,
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok || !res.body) {
+        onError?.(`Server error: ${res.status}`);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          for (const line of part.split("\n")) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const event = JSON.parse(line.slice(6)) as WebChatEvent;
+              onEvent(event);
+            } catch {
+              /* skip malformed lines */
+            }
+          }
+        }
+      }
+      onDone?.();
+    })
+    .catch((err) => {
+      if (err.name !== "AbortError") {
+        onError?.(String(err));
+      }
+    });
+
+  return () => controller.abort();
+}
+
+/** List documents persisted server-side in the RAG cache for a mode+model. */
+export async function getRagDocuments(
+  mode: "chat" | "web",
+  model: string,
+): Promise<string[]> {
+  const r = await fetch(
+    `${API_BASE}/api/rag/documents?mode=${mode}&model=${encodeURIComponent(model)}`,
+  );
+  const j = await r.json();
+  return j.documents ?? [];
 }
 
 export async function resetWeb(model: string) {

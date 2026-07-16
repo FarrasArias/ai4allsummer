@@ -205,6 +205,40 @@ echo "  You can download these anytime from the Models tab in the app,"
 echo "  or by running:  ollama pull <model-name>"
 echo ""
 
+# ----------------------------------------------------------
+# macOS only: energy metering via powermetrics
+# ----------------------------------------------------------
+if [ "$(uname)" = "Darwin" ]; then
+    echo ""
+    echo "  [+] Energy metering (macOS)..."
+    SUDOERS_FILE="/etc/sudoers.d/ai4all-powermetrics"
+    if [ -f "$SUDOERS_FILE" ]; then
+        echo "      powermetrics permission already configured."
+    else
+        echo ""
+        echo "  The energy dashboard reads Apple Silicon power draw via"
+        echo "  'powermetrics', which requires administrator rights."
+        echo "  This installs a rule allowing ONLY powermetrics to run"
+        echo "  without a password prompt:"
+        echo "    $SUDOERS_FILE"
+        echo ""
+        read -p "  Enable energy metering now? (Y/n): " ENABLE_PM
+        if [ "$(echo "$ENABLE_PM" | tr '[:upper:]' '[:lower:]')" != "n" ]; then
+            PM_PATH="$(command -v powermetrics || echo /usr/bin/powermetrics)"
+            if echo "%admin ALL=(root) NOPASSWD: $PM_PATH" | sudo tee "$SUDOERS_FILE" >/dev/null \
+                && sudo chmod 440 "$SUDOERS_FILE"; then
+                echo "      Energy metering enabled."
+            else
+                echo "  [!] Could not install the rule. Energy readings will show 0."
+                echo "      You can retry by re-running setup.sh."
+            fi
+        else
+            echo "      Skipped. The app works fine; energy readings show 0 on this Mac."
+            echo "      Re-run setup.sh anytime to enable it."
+        fi
+    fi
+fi
+
 # ============================================================
 #  Done!
 # ============================================================

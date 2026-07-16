@@ -57,6 +57,7 @@ import os
 import io
 import base64
 import json
+from pathlib import Path as _Path
 import time
 import shutil
 import threading
@@ -488,7 +489,9 @@ def chat(
                 thinking_mode=thinking_mode,
                 images=images_b64 or None,
             ):
-                payload = {"delta": chunk}
+                # str chunks are response text; dict chunks are progress
+                # events like {"status": "Searching your documents…"}
+                payload = chunk if isinstance(chunk, dict) else {"delta": chunk}
                 yield f"data: {json.dumps(payload)}\n\n".encode("utf-8")
                 meter.sample()
         except Exception as e:
@@ -603,39 +606,72 @@ def reset_vibe(model: str = Form(...)):
     return {"ok": True}
 
 # -----------------------------
-# Web chat (non-streaming JSON)
+# Web chat (SSE streaming with orchestration status events)
 # -----------------------------
 @app.post("/api/web/chat")
 def web_chat_endpoint(
     prompt: str = Form(...),
     model: str = Form(...),
+    files: Optional[List[UploadFile]] = File(None),
 ):
     """
-    Web-enabled chat endpoint.
+    Web-enabled chat endpoint (SSE).
 
-    - Uses WebChatSession (per-model session)
-    - Internally may call Ollama tools web_search / web_fetch
-    - Returns JSON: { ok: bool, response?: str, error?: str }
+    - Accepts document uploads (pdf/docx/txt/csv) which are RAG-indexed
+    - Streams real progress events: {"type":"status"|"assistant"|"error"|"done"}
+    - The final done event carries per-prompt energy metrics
     """
-    global _latest_chat_model
-
-    _ensure_power_thread()
-    _llm_running_flag["mode"] = "Chat"
-    _latest_chat_model = model
-
     session = _get_web_session(model)
 
-    meter = _EnergyMeter()
-    meter.start()
-    try:
-        reply = session.ask(prompt)
-        energy_wh, inference_time_ms = meter.finish()
-        return {"ok": True, "response": reply, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
-    except Exception as e:
-        meter.finish()
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-    finally:
-        _llm_running_flag["mode"] = "None"
+    # Persist uploads and index them (documents only — images are handled
+    # exclusively by the Image tab, per the HITL energy policy)
+    doc_notes: List[str] = []
+    if files:
+        tmpdir = os.path.join(CHAT_DIR, "_web")
+        os.makedirs(tmpdir, exist_ok=True)
+        for f in files:
+            ext = os.path.splitext(f.filename)[1].lower()
+            if ext in IMAGE_UPLOAD_EXTS:
+                doc_notes.append(f"Skipped {f.filename}: images are analyzed in the Image tab.")
+                continue
+            dst = os.path.join(tmpdir, f.filename)
+            with open(dst, "wb") as out:
+                shutil.copyfileobj(f.file, out)
+            try:
+                info = session.add_document(dst)
+                if info.get("skipped"):
+                    continue
+                chunks = info.get("rag_chunks")
+                doc_notes.append(
+                    f"Loaded {f.filename}"
+                    + (f" ({chunks} sections indexed)" if chunks else "")
+                )
+            except Exception as e:
+                doc_notes.append(f"Could not load {f.filename}: {e}")
+
+    def _gen():
+        global _latest_chat_model
+        _ensure_power_thread()
+        _llm_running_flag["mode"] = "Chat"
+        _latest_chat_model = model
+
+        meter = _EnergyMeter()
+        meter.start()
+        try:
+            for note in doc_notes:
+                yield f"data: {json.dumps({'type': 'status', 'text': note})}\n\n".encode("utf-8")
+            for event in session.ask_events(prompt):
+                yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
+                meter.sample()
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n".encode("utf-8")
+        finally:
+            _llm_running_flag["mode"] = "None"
+            energy_wh, inference_time_ms = meter.finish()
+            done = {"type": "done", "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
+            yield f"data: {json.dumps(done)}\n\n".encode("utf-8")
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
 
 
 @app.post("/api/web/reset")
@@ -653,6 +689,25 @@ def reset_web(model: str = Form(...)):
     _calculated_accumulator = 0.0
 
     return {"ok": True}
+
+
+# -----------------------------
+# RAG: list persisted documents for a mode+model
+# -----------------------------
+@app.get("/api/rag/documents")
+def rag_documents(mode: str = "chat", model: str = ""):
+    """
+    Return document names stored in the RAG cache for a mode+model, so the
+    frontend can show that previously uploaded documents are still loaded
+    after a restart (the file-picker itself can't be restored).
+    """
+    from utilities.rag_store import RagStore
+
+    if mode not in ("chat", "web"):
+        return JSONResponse({"error": "mode must be 'chat' or 'web'"}, status_code=400)
+    safe_model = "".join(c if c.isalnum() or c in "._-" else "_" for c in model)
+    store = RagStore(persist_dir=_Path("rag_cache") / f"{mode}_{safe_model}")
+    return {"documents": store.document_names()}
 
 
 # -----------------------------

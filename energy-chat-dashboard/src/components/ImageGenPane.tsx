@@ -21,9 +21,33 @@ export default function ImageGenPane({ model }: Props) {
   const [steps, setSteps] = useState(25);
   const [cfgScale, setCfgScale] = useState(7.0);
   const [generating, setGenerating] = useState(false);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem("ai4all.imagegen.history");
+      if (saved) {
+        const parsed = JSON.parse(saved) as HistoryEntry[];
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch { /* ignore */ }
+    return [];
+  });
   const [sdAvailable, setSdAvailable] = useState<boolean | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Persist recent generations across tab switches / refreshes.
+  // Base64 images are large, so keep only the last 5 entries; if localStorage
+  // quota is still exceeded, retry with the images stripped (prompts kept).
+  useEffect(() => {
+    const recent = history.slice(0, 5);
+    try {
+      localStorage.setItem("ai4all.imagegen.history", JSON.stringify(recent));
+    } catch {
+      try {
+        const stripped = recent.map((h) => ({ ...h, image_b64: null }));
+        localStorage.setItem("ai4all.imagegen.history", JSON.stringify(stripped));
+      } catch { /* ignore */ }
+    }
+  }, [history]);
 
   const activeModel = model;
 

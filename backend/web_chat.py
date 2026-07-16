@@ -2,37 +2,40 @@
 """
 Web-aware chat helper using Ollama tool calling.
 
-IMPORTANT:
-- We implement our own web_search/web_fetch tools by calling Ollama's web APIs
-  directly using the hardcoded API key (Authorization: Bearer ...).
-- This avoids issues where ollama-python caches OLLAMA_API_KEY at import time
-  across uvicorn reload/workers.
+- Implements web_search/web_fetch tools by calling Ollama's web APIs directly
+  (Authorization: Bearer <OLLAMA_WEB_API_KEY>).
+- Supports uploaded documents via the shared RagStore (retrieval per question),
+  with full-text fallback when the embedding model is unavailable.
+- ask_events() yields real orchestration status events ("Searching the web
+  for…", "Reading <url>", …) so the frontend can stream progress traces.
 """
 
 from __future__ import annotations
 
-from typing import List, Dict, Any, Optional, Union
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional, Union
 import json
 import logging
+import os
 
 import httpx
 from ollama import chat as ollama_chat
 
 from utilities.prompt_config import get_system_prompt
+from utilities.rag_store import RagStore
+from utilities.doc_loaders import extract_document, segments_to_text
 
 
 # ============================================================
 # API KEY — loaded from OLLAMA_WEB_API_KEY env var
+# (server.py loads backend/.env into the environment at startup)
 # ============================================================
-import os
 API_KEY = os.environ.get("OLLAMA_WEB_API_KEY", "")
 
 
 # ============================================================
 # LOGGING (print to terminal)
 # ============================================================
-# uvicorn + reload can spawn subprocesses; each process needs logging configured.
-# Only configure if no handlers exist (prevents duplicate logs if configured elsewhere).
 _root = logging.getLogger()
 if not _root.handlers:
     logging.basicConfig(
@@ -77,7 +80,7 @@ def web_search(query: str, max_results: int = 5) -> Dict[str, Any]:
       JSON response from Ollama web_search endpoint.
     """
     if not API_KEY:
-        raise RuntimeError("API_KEY is empty; web_search cannot authorize.")
+        raise RuntimeError("OLLAMA_WEB_API_KEY is empty; web_search cannot authorize.")
 
     resp = httpx.post(
         f"{_OLLAMA_WEB_BASE}/web_search",
@@ -88,7 +91,6 @@ def web_search(query: str, max_results: int = 5) -> Dict[str, Any]:
         json={"query": query, "max_results": max_results},
         timeout=20.0,
     )
-    # If auth is wrong, you'll see a 401 here
     resp.raise_for_status()
     return resp.json()
 
@@ -104,7 +106,7 @@ def web_fetch(url: str) -> Dict[str, Any]:
       JSON response from Ollama web_fetch endpoint.
     """
     if not API_KEY:
-        raise RuntimeError("API_KEY is empty; web_fetch cannot authorize.")
+        raise RuntimeError("OLLAMA_WEB_API_KEY is empty; web_fetch cannot authorize.")
 
     resp = httpx.post(
         f"{_OLLAMA_WEB_BASE}/web_fetch",
@@ -121,8 +123,8 @@ def web_fetch(url: str) -> Dict[str, Any]:
 
 def _normalize_tool_args(tool_args: Union[str, Dict[str, Any], None]) -> Dict[str, Any]:
     """
-    Tool call args can be returned as dict OR JSON string depending on ollama-python version.
-    Normalize to a dict.
+    Tool call args can be returned as dict OR JSON string depending on
+    ollama-python version. Normalize to a dict.
     """
     if tool_args is None:
         return {}
@@ -135,9 +137,19 @@ def _normalize_tool_args(tool_args: Union[str, Dict[str, Any], None]) -> Dict[st
         try:
             return json.loads(tool_args)
         except json.JSONDecodeError:
-            # sometimes models return sloppy JSON; surface it
             raise ValueError(f"Tool arguments were not valid JSON: {tool_args}")
     raise TypeError(f"Unsupported tool_args type: {type(tool_args)}")
+
+
+def _tool_status_text(tool_name: str, tool_args: Dict[str, Any]) -> str:
+    """Human-readable progress line for a tool invocation."""
+    if tool_name == "web_search":
+        query = str(tool_args.get("query", "")).strip()
+        return f'Searching the web for: "{query}"' if query else "Searching the web…"
+    if tool_name == "web_fetch":
+        url = str(tool_args.get("url", "")).strip()
+        return f"Reading {url}" if url else "Reading a webpage…"
+    return f"Running {tool_name}…"
 
 
 # ============================================================
@@ -145,17 +157,24 @@ def _normalize_tool_args(tool_args: Union[str, Dict[str, Any], None]) -> Dict[st
 # ============================================================
 class WebChatSession:
     """
-    Maintains conversation history and allows asking a question
-    with optional multi-step tool use.
+    Maintains conversation history, uploaded documents (RAG), and multi-step
+    tool use. The system message is rebuilt on every call so freshly retrieved
+    document excerpts can be injected without polluting the history.
     """
 
     def __init__(self, model: str = MODEL_NAME):
         self.model = model
-        self.messages: List[Dict[str, Any]] = []
+        self.base_system = get_system_prompt("web", DEFAULT_SYSTEM_PROMPT) or DEFAULT_SYSTEM_PROMPT
 
-        system_prompt = get_system_prompt("web", DEFAULT_SYSTEM_PROMPT)
-        if system_prompt:
-            self.messages.append({"role": "system", "content": system_prompt})
+        # Conversation history WITHOUT the system message
+        self.messages: List[Any] = []
+
+        # Uploaded documents: RAG store (persisted across restarts) with
+        # full-text fallback when embeddings are unavailable
+        safe_model = "".join(c if c.isalnum() or c in "._-" else "_" for c in model)
+        self.rag = RagStore(persist_dir=Path("rag_cache") / f"web_{safe_model}")
+        self.document_context: str = ""
+        self.loaded_files: List[str] = list(self.rag.document_names())
 
         # tool name -> function
         self.available_tools = {
@@ -164,55 +183,126 @@ class WebChatSession:
         }
 
         if not API_KEY:
-            logger.warning("API_KEY is empty. Web tools will fail with authorization errors.")
+            logger.warning(
+                "OLLAMA_WEB_API_KEY is empty. Web tools will fail with "
+                "authorization errors — set it in backend/.env"
+            )
+
+    # ── documents ──
+    def add_document(self, file_path: str) -> Dict[str, Any]:
+        """Index an uploaded document (RAG preferred, full-text fallback)."""
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        # The frontend re-sends loaded files with every prompt — skip
+        # re-indexing a document we already have
+        if path.name in self.loaded_files:
+            return {"filename": path.name, "skipped": True}
+
+        segments = extract_document(str(path))
+        rag_info = self.rag.add_document(path.name, segments)
+        if rag_info is None:
+            banner = "\n\n" + "=" * 60 + f"\n=== Document: {path.name} ===\n" + "=" * 60 + "\n"
+            self.document_context += banner + segments_to_text(segments)
+        self.loaded_files.append(path.name)
+
+        result = {
+            "filename": path.name,
+            "rag_chunks": rag_info.get("chunks") if rag_info else None,
+        }
+        logger.info("✓ Web session loaded %s (rag_chunks=%s)", path.name, result["rag_chunks"])
+        return result
 
     def reset(self):
-        """Reset conversation history but keep the model."""
+        """Reset conversation history and clear uploaded documents."""
         self.messages = []
-        system_prompt = get_system_prompt("web", DEFAULT_SYSTEM_PROMPT)
-        if system_prompt:
-            self.messages.append({"role": "system", "content": system_prompt})
+        self.document_context = ""
+        self.loaded_files = []
+        self.rag.clear()
 
-    def ask(self, user_input: str) -> str:
+    # ── prompting ──
+    def _system_content(self, retrieved_context: str = "") -> str:
+        content = self.base_system
+        if retrieved_context:
+            content += (
+                "\n\nRelevant excerpts retrieved from the user's uploaded documents "
+                "are shown below. Use them to answer when relevant, and mention "
+                "which document (and page, if given) you are referencing.\n\n"
+                f"{retrieved_context}"
+            )
+        elif self.document_context:
+            content += (
+                "\n\nYou have access to the following documents. Use them to answer "
+                "questions when relevant, and mention which document you are "
+                "referencing.\n\n"
+                f"{self.document_context}"
+            )
+        return content
+
+    def ask_events(self, user_input: str) -> Iterator[Dict[str, Any]]:
         """
-        Single-turn entry point.
-        Handles multi-iteration tool calls internally, returns final text.
+        Multi-iteration tool loop as an event stream. Yields:
+          {"type": "status", "text": ...}      — real progress traces
+          {"type": "assistant", "content": ...} — model text per iteration
+          {"type": "error", "error": ...}       — fatal model errors
         """
+        # Retrieve document excerpts relevant to this question (RAG).
+        # The query embedding runs on the GPU inside the caller's metered window.
+        retrieved_context = ""
+        if self.rag.has_documents():
+            yield {"type": "status", "text": "Searching your documents…"}
+            retrieved_context = self.rag.build_context(user_input)
+
         self.messages.append({"role": "user", "content": user_input})
-
-        final_chunks: List[str] = []
+        got_assistant_reply = False
 
         for iteration in range(1, MAX_ITERATIONS + 1):
             logger.info("WebChat iteration %d/%d", iteration, MAX_ITERATIONS)
 
-            # Call the model. We pass our tool callables (web_search/web_fetch).
+            call_messages = [
+                {"role": "system", "content": self._system_content(retrieved_context)}
+            ] + self.messages
+
             try:
                 response = ollama_chat(
                     model=self.model,
-                    messages=self.messages,
+                    messages=call_messages,
                     tools=[web_search, web_fetch],
                     think=ENABLE_THINKING,
                 )
             except Exception as e:
                 logger.exception("ERROR calling model: %s", e)
-                raise
+                if not got_assistant_reply:
+                    # Keep history consistent: drop the failed user turn
+                    if self.messages and isinstance(self.messages[-1], dict) \
+                            and self.messages[-1].get("role") == "user":
+                        self.messages.pop()
+                yield {"type": "error", "error": str(e)}
+                return
 
-            # Capture assistant content
-            if getattr(response.message, "content", None):
-                final_chunks.append(response.message.content)
+            content = getattr(response.message, "content", None)
+            if content:
+                got_assistant_reply = True
+                yield {"type": "assistant", "content": content}
 
-            # Save assistant message
             self.messages.append(response.message)
 
-            # If no tools requested, we�re done
             tool_calls = getattr(response.message, "tool_calls", None)
             if not tool_calls:
                 break
 
-            # Execute requested tools
             for tool_call in tool_calls:
                 tool_name = tool_call.function.name
-                tool_args = _normalize_tool_args(tool_call.function.arguments)
+                try:
+                    tool_args = _normalize_tool_args(tool_call.function.arguments)
+                except (ValueError, TypeError) as e:
+                    self.messages.append(
+                        {"role": "tool", "tool_name": tool_name, "content": f"Bad arguments: {e}"}
+                    )
+                    continue
+
+                yield {"type": "status", "text": _tool_status_text(tool_name, tool_args)}
 
                 fn = self.available_tools.get(tool_name)
                 if not fn:
@@ -232,8 +322,9 @@ class WebChatSession:
                     )
                     logger.info("Tool %s OK", tool_name)
                 except Exception as e:
-                    # This is where you�ll see 401s, timeouts, etc.
+                    # 401s, timeouts, etc. — non-fatal, the model sees the error
                     logger.exception("Tool %s FAILED args=%s", tool_name, tool_args)
+                    yield {"type": "status", "text": f"{tool_name} failed: {e}"}
                     self.messages.append(
                         {
                             "role": "tool",
@@ -242,10 +333,17 @@ class WebChatSession:
                         }
                     )
 
-            # Loop again to let the model read tool results and respond
-            continue
-
-        return ("\n\n".join([c for c in final_chunks if c]).strip()) or "I couldn't generate a response."
+    def ask(self, user_input: str) -> str:
+        """
+        Single-turn convenience wrapper over ask_events(); returns final text.
+        """
+        final_chunks: List[str] = []
+        for event in self.ask_events(user_input):
+            if event.get("type") == "assistant":
+                final_chunks.append(str(event.get("content", "")))
+            elif event.get("type") == "error":
+                raise RuntimeError(str(event.get("error")))
+        return ("\n\n".join(c for c in final_chunks if c).strip()) or "I couldn't generate a response."
 
 
 # Convenience alias for default model (server.py imports this)

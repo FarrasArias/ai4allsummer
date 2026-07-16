@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import ChatHistory from "./ChatHistory";
 import ChatInput from "./ChatInput";
-import { streamChat, streamAgentChat, resetAgent, listChats, saveChat, loadChat, getPinnedChats, togglePinnedChat, searchChats, resetChatSession, type SearchResult, type InferenceMetrics, type AgentEvent } from "../api";
+import { streamChat, streamAgentChat, resetAgent, getRagDocuments, listChats, saveChat, loadChat, getPinnedChats, togglePinnedChat, searchChats, resetChatSession, type SearchResult, type InferenceMetrics, type AgentEvent } from "../api";
 import { useTip } from "./TipContext";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
@@ -57,6 +57,11 @@ export default function ChatPane({
     const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("fast");
     const [agentMode, setAgentMode] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false);
+    // Live orchestration status ("Searching your documents…", "Reasoning…")
+    const [statusText, setStatusText] = useState<string | null>(null);
+    // Documents persisted server-side (RAG cache) — survives restarts, while
+    // the file picker itself can't be restored
+    const [serverDocs, setServerDocs] = useState<string[]>([]);
     const agentAbortRef = useRef<(() => void) | null>(null);
     // True between when a prompt is sent and when the first delta token arrives —
     // during this window the model may still be loading into GPU.
@@ -102,6 +107,18 @@ export default function ChatPane({
         }
     }, [activeModel, autoLoadModel]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Show which documents the server still has indexed for this model
+    // (RAG cache persists across backend restarts)
+    function refreshServerDocs(model?: string) {
+        if (!model) return;
+        getRagDocuments("chat", model)
+            .then(setServerDocs)
+            .catch(() => { /* backend may be down — ignore */ });
+    }
+    useEffect(() => {
+        refreshServerDocs(activeModel);
+    }, [activeModel]); // eslint-disable-line react-hooks/exhaustive-deps
+
     async function handleSend(text: string) {
         const trimmed = text.trim();
         if (!trimmed) return;
@@ -142,13 +159,16 @@ export default function ChatPane({
                 (event: AgentEvent) => {
                     if (event.type === "thinking") {
                         setWaitingForFirstDelta(false);
+                        setStatusText("Agent is working…");
                         return;
                     }
                     if (event.type === "assistant") {
                         setWaitingForFirstDelta(false);
+                        setStatusText(null);
                         acc += event.content;
                     } else if (event.type === "tool_start") {
                         setWaitingForFirstDelta(false);
+                        setStatusText(`Running ${event.tool}…`);
                         const argsPreview = Object.entries(event.args || {})
                             .map(([k, v]) => `${k}: ${String(v).slice(0, 80)}`)
                             .join(", ");
@@ -169,6 +189,7 @@ export default function ChatPane({
                 () => {
                     setIsStreaming(false);
                     setWaitingForFirstDelta(false);
+                    setStatusText(null);
                 },
                 (err) => {
                     console.error(err);
@@ -178,6 +199,7 @@ export default function ChatPane({
                     ]);
                     setIsStreaming(false);
                     setWaitingForFirstDelta(false);
+                    setStatusText(null);
                 },
             );
             agentAbortRef.current = abort;
@@ -192,6 +214,7 @@ export default function ChatPane({
                         if (!firstDeltaReceived) {
                             firstDeltaReceived = true;
                             setWaitingForFirstDelta(false);
+                            setStatusText(null); // response text replaces the trace
                         }
                         acc += delta;
                         setMessages((m) => {
@@ -200,6 +223,8 @@ export default function ChatPane({
                             return [...withoutBotTail, { role: "bot", text: acc }];
                         });
                     },
+                    undefined,
+                    (status: string) => setStatusText(status),
                 );
                 if (metrics) {
                     setMessages((m) => {
@@ -231,10 +256,13 @@ export default function ChatPane({
             } finally {
                 setIsStreaming(false);
                 setWaitingForFirstDelta(false);
+                setStatusText(null);
                 // Images are now part of the server-side conversation history;
                 // drop them so they aren't re-sent with the next prompt.
                 // (Documents stay attached — the backend dedupes re-uploads.)
                 setFiles((prev) => prev.filter((f) => !IMAGE_FILE_RE.test(f.name)));
+                // Any newly uploaded documents are indexed now — refresh the list
+                refreshServerDocs(activeModel);
             }
         }
     }
@@ -323,6 +351,7 @@ export default function ChatPane({
             }
         }
         setMessages([{ role: "bot", text: "Hi! Ask me anything." }]);
+        setServerDocs([]); // backend reset clears the RAG store too
         try { localStorage.removeItem("ai4all.chat.messages"); } catch { /* ignore */ }
     }
 
@@ -501,6 +530,13 @@ export default function ChatPane({
                             </>
                         )}
 
+                        {serverDocs.length > 0 && (
+                            <span style={{ fontSize: 11, opacity: 0.7 }} title={serverDocs.join(", ")}>
+                                📄 {serverDocs.length} stored document{serverDocs.length > 1 ? "s" : ""} on
+                                server: {serverDocs.join(", ")} — "Clear chat" removes them
+                            </span>
+                        )}
+
                         <input
                             placeholder="Chat name"
                             value={chatName}
@@ -633,6 +669,12 @@ export default function ChatPane({
             {/* Input */}
             <div className="panel">
                 <div className="panel-body">
+                    {/* Live orchestration status (document search, reasoning, agent tools) */}
+                    {isStreaming && statusText && (
+                        <div style={{ fontSize: 12, fontStyle: "italic", opacity: 0.75, marginBottom: 6 }}>
+                            {statusText}
+                        </div>
+                    )}
                     {/* Auto-load mode: show banner while model preloads */}
                     {modelLoading && (
                         <div className="model-loading-banner">

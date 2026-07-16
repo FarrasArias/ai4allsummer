@@ -109,6 +109,9 @@ chats/
 images/
 reports/
 
+# RAG embedding cache (rebuilt from uploads)
+rag_cache/
+
 __pychache__
 
 .vs

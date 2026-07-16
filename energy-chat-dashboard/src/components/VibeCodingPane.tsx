@@ -28,9 +28,23 @@ type ChatEntry =
 type Props = { model?: string };
 
 export default function VibeCodingPane({ model }: Props) {
-  const [entries, setEntries] = useState<ChatEntry[]>([
-    { kind: "status", text: "Coding agent ready. Describe a task or paste code." },
-  ]);
+  const [entries, setEntries] = useState<ChatEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem("ai4all.vibe.entries");
+      if (saved) {
+        const parsed = JSON.parse(saved) as ChatEntry[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch { /* ignore */ }
+    return [{ kind: "status", text: "Coding agent ready. Describe a task or paste code." }];
+  });
+
+  // Persist transcript so it survives tab switches and page refreshes
+  useEffect(() => {
+    try {
+      localStorage.setItem("ai4all.vibe.entries", JSON.stringify(entries));
+    } catch { /* ignore */ }
+  }, [entries]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
@@ -142,6 +156,7 @@ export default function VibeCodingPane({ model }: Props) {
     }
     setBusy(false);
     setEntries([{ kind: "status", text: "Agent session reset. Ready for a new task." }]);
+    try { localStorage.removeItem("ai4all.vibe.entries"); } catch { /* ignore */ }
   }
 
   function handleStop() {

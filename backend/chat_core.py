@@ -6,11 +6,9 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 import ollama
-import PyPDF2
-import docx
-import pandas as pd
 
 from utilities.rag_store import RagStore
+from utilities.doc_loaders import extract_document, segments_to_text
 
 # Logging setup
 logging.basicConfig(
@@ -40,12 +38,14 @@ class OllamaChat:
         # Concatenated text of all loaded documents (fallback when RAG is unavailable)
         self.document_context: str = ""
 
-        # Names of loaded files
-        self.loaded_files: List[str] = []
-
         # RAG store: uploaded documents are chunked + embedded here, and only
-        # the chunks relevant to each question are injected into the prompt
-        self.rag = RagStore()
+        # the chunks relevant to each question are injected into the prompt.
+        # Persisted under rag_cache/ so uploads survive backend restarts.
+        safe_model = "".join(c if c.isalnum() or c in "._-" else "_" for c in model)
+        self.rag = RagStore(persist_dir=Path("rag_cache") / f"chat_{safe_model}")
+
+        # Names of loaded files (restored from a persisted store for dedup)
+        self.loaded_files: List[str] = list(self.rag.document_names())
 
         # Token counts from the most recent streaming response
         self._last_eval_count: int = 0
@@ -95,74 +95,9 @@ class OllamaChat:
         }
 
     # -------------
-    # Load documents
+    # Load documents (text extraction lives in utilities/doc_loaders.py,
+    # shared with the web mode)
     # -------------
-    def load_pdf(self, pdf_path: str) -> str:
-        """
-        Extract text from a PDF file, with page markers.
-        """
-        try:
-            text = ""
-            with open(pdf_path, "rb") as file:
-                reader = PyPDF2.PdfReader(file)
-                for page_num, page in enumerate(reader.pages):
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += f"\n--- Page {page_num + 1} ---\n{page_text}"
-            return text
-        except Exception as e:
-            logger.error(f"Error reading PDF {pdf_path}: {e}")
-            raise
-
-    def load_docx(self, docx_path: str) -> str:
-        """
-        Extract text from a DOCX file.
-        """
-        try:
-            doc = docx.Document(docx_path)
-            text = "\n\n".join(
-                paragraph.text for paragraph in doc.paragraphs if paragraph.text
-            )
-            return text
-        except Exception as e:
-            logger.error(f"Error reading DOCX {docx_path}: {e}")
-            raise
-
-    def load_txt(self, txt_path: str) -> str:
-        """
-        Load a text file with basic encoding fallback.
-        """
-        encodings = ["utf-8", "latin-1", "cp1252", "iso-8859-1"]
-        for enc in encodings:
-            try:
-                with open(txt_path, "r", encoding=enc) as f:
-                    return f.read()
-            except UnicodeDecodeError:
-                continue
-        raise ValueError(f"Could not decode {txt_path} with any common encoding")
-
-    def load_csv(self, csv_path: str) -> str:
-        """
-        Summarize a CSV file as readable text instead of dumping the whole thing.
-        """
-        try:
-            df = pd.read_csv(csv_path)
-
-            text = "CSV File Summary:\n"
-            text += f"Rows: {len(df)}, Columns: {len(df.columns)}\n"
-            text += f"Column Names: {', '.join(df.columns)}\n\n"
-            text += "First 20 rows:\n"
-            text += f"{df.head(20).to_string()}\n\n"
-            text += "Data Types:\n"
-            text += f"{df.dtypes.to_string()}\n\n"
-            text += "Basic Statistics:\n"
-            text += f"{df.describe().to_string()}"
-
-            return text
-        except Exception as e:
-            logger.error(f"Error reading CSV {csv_path}: {e}")
-            raise
-
     def add_document(self, file_path: str) -> Dict[str, object]:
         """
         Add a document file into the running context.
@@ -190,24 +125,16 @@ class OllamaChat:
                 f"Large file detected: {file_size_mb:.1f} MB – may take time to process."
             )
 
-        suffix = path.suffix.lower()
-
         try:
-            if suffix == ".pdf":
-                content = self.load_pdf(str(path))
-            elif suffix in [".docx", ".doc"]:
-                content = self.load_docx(str(path))
-            elif suffix == ".txt":
-                content = self.load_txt(str(path))
-            elif suffix == ".csv":
-                content = self.load_csv(str(path))
-            else:
-                raise ValueError(f"Unsupported file type: {suffix}")
+            # Extract text segments (per-page for PDFs, so excerpts can cite
+            # pages; figures are flagged but not processed)
+            segments = extract_document(str(path))
+            content = segments_to_text(segments)
 
             # Prefer RAG indexing: chunks are embedded now and only the
             # relevant ones are retrieved per question. If embeddings are
             # unavailable, fall back to stuffing the full text into context.
-            rag_info = self.rag.add_document(path.name, content)
+            rag_info = self.rag.add_document(path.name, segments)
             if rag_info is None:
                 banner = (
                     "\n\n"
@@ -421,8 +348,11 @@ class OllamaChat:
         # Retrieve document excerpts relevant to this question (RAG).
         # This embeds the query on the GPU, so it happens inside the
         # energy-metered window in server.py.
+        # NOTE: this generator yields str chunks (response text) and dict
+        # events ({"status": ...} progress traces) — the server tells them apart.
         retrieved_context = ""
         if self.rag.has_documents():
+            yield {"status": "Searching your documents…"}
             retrieved_context = self.rag.build_context(user_message)
 
         # Append user message, then build messages
@@ -443,9 +373,17 @@ class OllamaChat:
                 think=think,
                 options={"temperature": temperature, "num_predict": num_predict},
             )
+            reasoning_signaled = False
             for chunk in stream:
                 msg = chunk.get("message", {}) or {}
                 text = msg.get("content", "") or ""
+                # Deep-think models emit reasoning tokens before any visible
+                # text — surface that as a real progress trace once
+                if not full_response and not text and not reasoning_signaled:
+                    thinking_text = msg.get("thinking", "") or ""
+                    if thinking_text:
+                        reasoning_signaled = True
+                        yield {"status": "Reasoning…"}
                 if text:
                     full_response += text
                     yield text
