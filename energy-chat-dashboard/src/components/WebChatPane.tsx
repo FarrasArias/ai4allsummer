@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ChatHistory from "./ChatHistory";
 import ChatInput from "./ChatInput";
 import { streamWebChat, resetWeb, getRagDocuments, type WebChatEvent } from "../api";

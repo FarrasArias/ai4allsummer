@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { InferenceMetrics } from "../api";
@@ -61,6 +61,10 @@ export default function ChatHistory({ messages, isStreaming = false, thinkingMod
     <div className="chat-history" ref={ref} aria-label="Chat history">
       {messages.map((m, i) => (
         <div key={i} className={`chat-bubble ${m.role}`}>
+          {/* Avatar */}
+          {m.role === "bot" && (
+            <div className="chat-avatar bot-avatar" aria-hidden="true">U</div>
+          )}
           <div className="bubble">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -119,11 +123,16 @@ export default function ChatHistory({ messages, isStreaming = false, thinkingMod
               </div>
             )}
           </div>
+          {/* User avatar */}
+          {m.role === "user" && (
+            <div className="chat-avatar user-avatar" aria-hidden="true">👤</div>
+          )}
         </div>
       ))}
 
       {isStreaming && (
         <div className="chat-bubble bot">
+            <div className="chat-avatar bot-avatar" aria-hidden="true">U</div>
             <div
             className="bubble typing-indicator"
             aria-label="Assistant is responding"

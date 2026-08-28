@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { generateImage, getImageGenStatus, type ImageGenResult } from "../api";
 
 type HistoryEntry = {

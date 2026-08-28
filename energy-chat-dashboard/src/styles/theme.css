@@ -1,36 +1,173 @@
+/* ═══════════════════════════════════════════════
+   Uness — Design Tokens
+   Light theme (default) + Dark theme
+   ═══════════════════════════════════════════════ */
+
 :root {
-    /* Layout sizes */
-    --sidebar-w: 360px;
-    --gap: 16px;
-    --radius: 14px;
-    --chat-input-h: 50px;
-    --card-padding: 16px;
-    /* Typography */
-    --font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", "Apple Color Emoji", "Segoe UI Emoji";
-    --font-size: 15px;
-    --font-size-lg: 24px;
-    --font-weight-strong: 700;
-    /* Colors (light) � aligned with the new Energy Dashboard design */
-    --color-bg: #eef3f7; /* page background */
-    --color-panel: #ffffff; /* base card background */
-    --color-sidebar-bg: transparent;
-    --color-border: #d0d7e2; /* soft steel border */
-    --color-text: #111111; /* main text */
-    --color-text-dim: #243447; /* slightly dimmed text */
-    --color-accent: #1b6e28; /* green accent for buttons/focus */
-    /* Meter gradient stops (kept) */
+    /* ── Layout ── */
+    --sidebar-w: 240px;
+    --gap: 0px;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-pill: 999px;
+
+    /* ── Typography ── */
+    --font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-size: 14px;
+    --font-size-xs: 11px;
+    --font-size-sm: 12px;
+    --font-size-md: 13px;
+    --font-size-lg: 16px;
+    --font-size-xl: 18px;
+    --font-size-2xl: 24px;
+
+    /* ── Light Colors ── */
+    --color-sidebar-bg: #F5F1EC;
+    --color-bg: #FFFFFF;
+    --color-panel: #FFFFFF;
+
+    --color-accent: #4B7BBA;
+    --color-accent-hover: #3D6AA5;
+    --color-accent-soft: #E8F0FA;
+
+    --color-text: #1A1A2E;
+    --color-text-dim: #8B8B9E;
+    --color-text-section: #8B8B9E;
+
+    --color-border: #E5E7EB;
+    --color-border-subtle: #F0F0F0;
+
+    --color-danger: #D94444;
+    --color-star: #DAA520;
+    --color-energy: #2ecc71;
+
+    /* ── Bubbles ── */
+    --bubble-user: #1A2332;
+    --bubble-user-text: #FFFFFF;
+    --bubble-bot: #F0EDE8;
+    --bubble-bot-text: #1A1A2E;
+
+    /* ── Inputs ── */
+    --input-bg: #FFFFFF;
+    --input-text: var(--color-text);
+    --input-border: #D4D4D8;
+    --input-placeholder: #9CA3AF;
+
+    /* ── Buttons ── */
+    --button-bg: var(--color-accent);
+    --button-text: #FFFFFF;
+
+    /* ── Shadows ── */
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+    /* ── Context menu ── */
+    --menu-bg: #FFFFFF;
+    --menu-hover: #F5F5F5;
+
+    /* ── Hover states ── */
+    --hover-bg: rgba(0, 0, 0, 0.04);
+
+    /* ── Meter (kept for energy grading) ── */
     --meter-green: #2ecc71;
     --meter-yellow: #f1c40f;
     --meter-red: #e74c3c;
-    /* Chat bubbles � light blue/grey to fit new palette */
-    --bubble-user: #e2ecf4;
-    --bubble-bot: #ffffff;
-    /* Buttons / inputs */
-    --input-bg: #ffffff;
-    --input-text: var(--color-text);
-    --button-bg: #1b6e28;
-    --button-text: #ffffff;
-    /* Shadows */
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.16);
-    --shadow-md: 0 10px 30px rgba(15, 23, 42, 0.25);
+
+    /* ── Code blocks ── */
+    --code-bg: rgba(0, 0, 0, 0.04);
+}
+
+/* ── Dark theme: system preference ── */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --color-sidebar-bg: #1B2028;
+        --color-bg: #232834;
+        --color-panel: #232834;
+
+        --color-accent: #6BA3DB;
+        --color-accent-hover: #7BB2E8;
+        --color-accent-soft: #1D2D40;
+
+        --color-text: #E8E8EC;
+        --color-text-dim: #6E7080;
+        --color-text-section: #6E7080;
+
+        --color-border: #374151;
+        --color-border-subtle: #2D3340;
+
+        --color-danger: #EF4444;
+        --color-star: #FBBF24;
+        --color-energy: #4ADE80;
+
+        --bubble-user: #1A2332;
+        --bubble-user-text: #FFFFFF;
+        --bubble-bot: #2A303C;
+        --bubble-bot-text: #E8E8EC;
+
+        --input-bg: #2A303C;
+        --input-text: #E8E8EC;
+        --input-border: #374151;
+        --input-placeholder: #6E7080;
+
+        --button-bg: var(--color-accent);
+        --button-text: #FFFFFF;
+
+        --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+        --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.35);
+
+        --menu-bg: #2A303C;
+        --menu-hover: #333A48;
+
+        --hover-bg: rgba(255, 255, 255, 0.05);
+
+        --code-bg: rgba(255, 255, 255, 0.06);
+    }
+}
+
+/* ── Dark theme: explicit toggle ── */
+:root[data-theme="dark"] {
+    --color-sidebar-bg: #1B2028;
+    --color-bg: #232834;
+    --color-panel: #232834;
+
+    --color-accent: #6BA3DB;
+    --color-accent-hover: #7BB2E8;
+    --color-accent-soft: #1D2D40;
+
+    --color-text: #E8E8EC;
+    --color-text-dim: #6E7080;
+    --color-text-section: #6E7080;
+
+    --color-border: #374151;
+    --color-border-subtle: #2D3340;
+
+    --color-danger: #EF4444;
+    --color-star: #FBBF24;
+    --color-energy: #4ADE80;
+
+    --bubble-user: #1A2332;
+    --bubble-user-text: #FFFFFF;
+    --bubble-bot: #2A303C;
+    --bubble-bot-text: #E8E8EC;
+
+    --input-bg: #2A303C;
+    --input-text: #E8E8EC;
+    --input-border: #374151;
+    --input-placeholder: #6E7080;
+
+    --button-bg: var(--color-accent);
+    --button-text: #FFFFFF;
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.35);
+
+    --menu-bg: #2A303C;
+    --menu-hover: #333A48;
+
+    --hover-bg: rgba(255, 255, 255, 0.05);
+
+    --code-bg: rgba(255, 255, 255, 0.06);
 }

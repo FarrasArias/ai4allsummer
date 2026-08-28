@@ -1,5 +1,5 @@
 // components/ImpactLabelCard.tsx
-import React, { useMemo } from "react";
+import { useMemo } from "react";
 
 import labelA from "../assets/Impact_Labels_A.png";
 import labelB from "../assets/Impact_Labels_B.png";

@@ -110,8 +110,6 @@ export default function ImageAnalysisPane({ model }: Props) {
     }
   }
 
-  const lastTurn = turns[turns.length - 1];
-
   return (
     <div
       onDrop={handleDrop}

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import Sidebar from "./components/Sidebar";
+import Sidebar, { type ModeTab, type ThemeChoice } from "./components/Sidebar";
+import HeaderBar from "./components/HeaderBar";
 import ChatPane from "./components/ChatPane";
 import ModelManagerPane from "./components/ModelManagerPane";
 import VibeCodingPane from "./components/VibeCodingPane";
@@ -8,14 +9,15 @@ import ImageAnalysisPane from "./components/ImageAnalysisPane";
 import ImageGenPane from "./components/ImageGenPane";
 import TestRunnerPane from "./components/TestRunnerPane";
 import { TipProvider } from "./components/TipContext";
-import TipsBox from "./components/TipsBox";
-// import AnalyticsPane from "./components/AnalyticsPane";
 import {
-  streamPower,
-  saveStudySession,
-  resetChatSession,
-  getModeDefaults,
-  loadModel,
+    streamPower,
+    saveStudySession,
+    resetChatSession,
+    getModeDefaults,
+    loadModel,
+    listChats,
+    getPinnedChats,
+    togglePinnedChat,
     type ModeDefaults,
     type ModeKey,
 } from "./api";
@@ -23,447 +25,466 @@ import {
 import StudyControls, { loadPersistedStudySettings } from "./components/StudyControls";
 import type { StudySettings, PromptMetric } from "./components/StudyControls";
 
-// Keep in sync with ChatPane's message shape
 type Msg = { role: "user" | "bot"; text: string };
 
 export default function App() {
-  const [kwhUsed, setKwhUsed] = useState(0);
-  const [lastPromptEnergyPct, setLastPromptEnergyPct] = useState(0);
-  const [totalEnergyPct, setTotalEnergyPct] = useState(0);
-  const [litresWater, setLitresWater] = useState(0);
-  const [tab, setTab] = useState<"chat" | "vibe" | "web" | "image" | "image_gen" | "settings" | "testing">("chat");
+    /* ── Energy state ── */
+    const [latestPromptWh, setLatestPromptWh] = useState<number | null>(null);
+    const [sessionTotalWh, setSessionTotalWh] = useState<number | null>(null);
+    const [todayTotalWh, setTodayTotalWh] = useState<number | null>(null);
+    const [promptWhHistory, setPromptWhHistory] = useState<number[]>([]);
+    const lastPromptWhRef = useRef<number | null>(null);
 
-  const [latestPromptWh, setLatestPromptWh] = useState<number | null>(null);
-  const [sessionTotalWh, setSessionTotalWh] = useState<number | null>(null);
-  const [todayTotalWh, setTodayTotalWh] = useState<number | null>(null);
+    /* ── Tab / nav ── */
+    const [tab, setTab] = useState<ModeTab>("chat");
+    const [chatKey, setChatKey] = useState(0);
+    const [currentModel, setCurrentModel] = useState<string | null>(null);
 
-  // NEW: rolling energy window for last 5 prompts
-  const [promptWhHistory, setPromptWhHistory] = useState<number[]>([]);
-  const lastPromptWhRef = useRef<number | null>(null);
+    /* ── Conversation list ── */
+    const [chats, setChats] = useState<string[]>([]);
+    const [pinnedChats, setPinnedChats] = useState<string[]>([]);
+    const [activeChatName, setActiveChatName] = useState("");
 
-  const [chatKey, setChatKey] = useState(0);
+    /* ── Model management ── */
+    const [autoLoadModel, setAutoLoadModel] = useState<boolean>(() => {
+        try { return localStorage.getItem("ai4all.autoLoadModel") === "true"; }
+        catch { return false; }
+    });
+    const [modelLoading, setModelLoading] = useState(false);
+    const [modelLoadTarget, setModelLoadTarget] = useState<string | null>(null);
 
-  const [currentModel, setCurrentModel] = useState<string | null>(null);
-
-  // Model pre-loading
-  const [autoLoadModel, setAutoLoadModel] = useState<boolean>(() => {
-    try { return localStorage.getItem("ai4all.autoLoadModel") === "true"; }
-    catch { return false; }
-  });
-  const [modelLoading, setModelLoading] = useState(false);
-  const [modelLoadTarget, setModelLoadTarget] = useState<string | null>(null);
-
-  // Global chat presets for "Fast think" and "Deep think"
-  const [fastModel, setFastModel] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem("ai4all.chat.fastModel") || null;
-    } catch {
-      return null;
-    }
-  });
-  const [deepModel, setDeepModel] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem("ai4all.chat.deepModel") || null;
-    } catch {
-      return null;
-    }
-  });
+    const [fastModel, setFastModel] = useState<string | null>(() => {
+        try { return localStorage.getItem("ai4all.chat.fastModel") || null; }
+        catch { return null; }
+    });
+    const [deepModel, setDeepModel] = useState<string | null>(() => {
+        try { return localStorage.getItem("ai4all.chat.deepModel") || null; }
+        catch { return null; }
+    });
 
     const [modeDefaults, setModeDefaults] = useState<ModeDefaults | null>(null);
-
-    // NEW: per-mode overrides (chat / vibe_coding / image / web)
-    const [modeOverrides, setModeOverrides] = useState<
-        Partial<Record<ModeKey, string>>
-    >(() => {
+    const [modeOverrides, setModeOverrides] = useState<Partial<Record<ModeKey, string>>>(() => {
         try {
             const raw = localStorage.getItem("ai4all.modeOverrides");
             return raw ? JSON.parse(raw) : {};
-        } catch {
-            return {};
-        }
+        } catch { return {}; }
     });
+
+    /* ── Study settings (hidden, accessible via Settings tab) ── */
+    const persisted = loadPersistedStudySettings() || {};
+    const [study, setStudy] = useState<StudySettings>({
+        participantId: persisted.participantId || "",
+        group: (persisted.group as any) || "control",
+        session: (persisted.session as any) || 1,
+        taskStartedAt: null,
+        taskEndedAt: null,
+    });
+    const [promptMetrics, setPromptMetrics] = useState<PromptMetric[]>([]);
+    const [s1TotalWh, setS1TotalWh] = useState<number | null>(() => {
+        try {
+            const key = `ai4all.study.s1TotalWh.${persisted.participantId || "anon"}`;
+            const raw = localStorage.getItem(key);
+            return raw ? Number(raw) : null;
+        } catch { return null; }
+    });
+
+    const [messages, setMessages] = useState<Msg[]>([]);
+    const [copyStatus, setCopyStatus] = useState<string | null>(null);
+    const [studyCollapsed, setStudyCollapsed] = useState(true);
+
+    /* ── Theme ── */
+    const [theme, setTheme] = useState<ThemeChoice>(() => {
+        try {
+            return (localStorage.getItem("ai4all.theme") as ThemeChoice) || "system";
+        } catch { return "system"; }
+    });
+
+    /* ── Derived model values ── */
+    const vibeModel = modeOverrides.vibe_coding || modeDefaults?.vibe_coding?.default;
+    const webModel = modeOverrides.web || modeDefaults?.web?.default;
+    const imageModel = modeOverrides.image || modeDefaults?.image?.default;
+    const imageGenModel = modeOverrides.image_gen || modeDefaults?.image_gen?.default;
+    const chatModeModel = modeOverrides.chat || modeDefaults?.chat?.default;
+
+    // activeModel for display: use whatever ChatPane last reported, else the default
+    const activeModel = currentModel || chatModeModel;
+
+    const last2AvgWh =
+        promptWhHistory.length > 0
+            ? promptWhHistory.reduce((sum, v) => sum + v, 0) / promptWhHistory.length
+            : null;
+
+    /* ── Effects ── */
+
+    // Persist settings
+    useEffect(() => {
+        try { localStorage.setItem("ai4all.modeOverrides", JSON.stringify(modeOverrides)); }
+        catch { /* ignore */ }
+    }, [modeOverrides]);
+
+    // Apply theme
+    useEffect(() => {
+        if (theme === "system") {
+            document.documentElement.removeAttribute("data-theme");
+        } else {
+            document.documentElement.setAttribute("data-theme", theme);
+        }
+        try { localStorage.setItem("ai4all.theme", theme); }
+        catch { /* ignore */ }
+    }, [theme]);
 
     useEffect(() => {
         try {
-            localStorage.setItem("ai4all.modeOverrides", JSON.stringify(modeOverrides));
-        } catch {
-            // ignore
-        }
-    }, [modeOverrides]);
+            if (fastModel) localStorage.setItem("ai4all.chat.fastModel", fastModel);
+            else localStorage.removeItem("ai4all.chat.fastModel");
+        } catch { /* ignore */ }
+    }, [fastModel]);
 
-  useEffect(() => {
-    try {
-      if (fastModel) {
-        localStorage.setItem("ai4all.chat.fastModel", fastModel);
-      } else {
-        localStorage.removeItem("ai4all.chat.fastModel");
-      }
-    } catch {
-      // ignore
-    }
-  }, [fastModel]);
+    useEffect(() => {
+        try {
+            if (deepModel) localStorage.setItem("ai4all.chat.deepModel", deepModel);
+            else localStorage.removeItem("ai4all.chat.deepModel");
+        } catch { /* ignore */ }
+    }, [deepModel]);
 
-  useEffect(() => {
-    try {
-      if (deepModel) {
-        localStorage.setItem("ai4all.chat.deepModel", deepModel);
-      } else {
-        localStorage.removeItem("ai4all.chat.deepModel");
-      }
-    } catch {
-      // ignore
-    }
-  }, [deepModel]);
+    useEffect(() => {
+        try { localStorage.setItem("ai4all.autoLoadModel", String(autoLoadModel)); }
+        catch { /* ignore */ }
+    }, [autoLoadModel]);
 
-  // Load backend-defined default models per mode (Chat / Vibe / Web / Image)
-  // Also initialize fast/deep models from backend config if not set in localStorage
-  useEffect(() => {
-    getModeDefaults()
-      .then((defaults) => {
-        setModeDefaults(defaults);
+    // Load mode defaults from backend
+    useEffect(() => {
+        getModeDefaults()
+            .then((defaults) => {
+                setModeDefaults(defaults);
+                const chatDefaults = defaults.chat;
+                if (chatDefaults) {
+                    if (!fastModel && chatDefaults.fast) setFastModel(chatDefaults.fast);
+                    if (!deepModel && chatDefaults.thinking) setDeepModel(chatDefaults.thinking);
+                }
+            })
+            .catch((err) => console.error("Failed to load mode defaults", err));
+    }, []);
 
-        // Initialize fast/deep models from backend config if not set locally
-        const chatDefaults = defaults.chat;
-        if (chatDefaults) {
-          if (!fastModel && chatDefaults.fast) {
-            setFastModel(chatDefaults.fast);
-          }
-          if (!deepModel && chatDefaults.thinking) {
-            setDeepModel(chatDefaults.thinking);
-          }
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to load mode defaults", err);
-      });
-  }, []);
+    // Load conversation list
+    useEffect(() => {
+        listChats().then((j) => setChats(j.chats ?? [])).catch(() => {});
+        setPinnedChats(getPinnedChats());
+    }, []);
 
-  // Persist autoLoadModel preference
-  useEffect(() => {
-    try { localStorage.setItem("ai4all.autoLoadModel", String(autoLoadModel)); }
-    catch { /* ignore */ }
-  }, [autoLoadModel]);
+    // Power stream
+    useEffect(() => {
+        const stop = streamPower((s) => {
+            const latestWh = s.latest_prompt_Wh ?? 0;
+            const sessionWh = s.session_total_Wh ?? 0;
+            const todayWh = s.today_total_Wh ?? 0;
 
-  // Pre-load a model into GPU memory (auto-load mode)
-  async function handleRequestModelLoad(model: string) {
-    if (!model || modelLoading) return;
-    setModelLoading(true);
-    setModelLoadTarget(model);
-    try {
-      await loadModel(model);
-    } catch (err) {
-      console.error("Failed to pre-load model:", err);
-    } finally {
-      setModelLoading(false);
-      setModelLoadTarget(null);
-    }
-  }
+            setPromptWhHistory((prev) => {
+                const prevSeen = lastPromptWhRef.current;
+                if (latestWh > 0 && latestWh !== prevSeen) {
+                    const next = [...prev, latestWh];
+                    if (next.length > 2) next.shift();
+                    lastPromptWhRef.current = latestWh;
+                    return next;
+                }
+                lastPromptWhRef.current = latestWh;
+                return prev;
+            });
 
-  // ----- Study settings & metrics -----
-  const persisted = loadPersistedStudySettings() || {};
-  const [study, setStudy] = useState<StudySettings>({
-    participantId: persisted.participantId || "",
-    group: (persisted.group as any) || "control",
-    session: (persisted.session as any) || 1,
-    taskStartedAt: null,
-    taskEndedAt: null,
-  });
-  const [promptMetrics, setPromptMetrics] = useState<PromptMetric[]>([]);
-  const [s1TotalWh, setS1TotalWh] = useState<number | null>(() => {
-    try {
-      const key = `ai4all.study.s1TotalWh.${persisted.participantId || "anon"}`;
-      const raw = localStorage.getItem(key);
-      return raw ? Number(raw) : null;
-    } catch {
-      return null;
-    }
-  });
+            setLatestPromptWh(latestWh);
+            setSessionTotalWh(sessionWh);
+            setTodayTotalWh(todayWh);
+        });
+        return stop;
+    }, []);
 
-  // OPTIONAL: keep a copy of the transcript in App so we can save it with the study bundle
-  const [messages, setMessages] = useState<Msg[]>([]);
-
-  // Collapse behaviour
-  const [controlsCollapsed, setControlsCollapsed] = useState(true);
-
-  const last2AvgWh =
-    promptWhHistory.length > 0
-      ? promptWhHistory.reduce((sum, v) => sum + v, 0) / promptWhHistory.length
-      : null;
-
-  // ----- Power stream (kept) + expose raw Wh for EUI -----
-  useEffect(() => {
-    const stop = streamPower((s) => {
-      const latestWh = s.latest_prompt_Wh ?? 0;
-      const sessionWh = s.session_total_Wh ?? 0;
-      const todayWh = s.today_total_Wh ?? 0;
-
-      // NEW: maintain a rolling history of last 5 prompt Wh values
-      setPromptWhHistory((prev) => {
-        const prevSeen = lastPromptWhRef.current;
-
-        // Only log when we see a new non-zero latest prompt value
-        if (latestWh > 0 && latestWh !== prevSeen) {
-          const next = [...prev, latestWh];
-          if (next.length > 2) next.shift(); // keep only last 2
-          lastPromptWhRef.current = latestWh;
-          return next;
-        }
-
-        // Keep ref in sync even if unchanged or 0
-        lastPromptWhRef.current = latestWh;
-        return prev;
-      });
-
-      setLatestPromptWh(latestWh);
-      setSessionTotalWh(sessionWh);
-      setTodayTotalWh(todayWh);
-
-      // legacy sidebar metrics. TODO: Check if should remove.
-      setKwhUsed(todayWh / 1000);
-      setLastPromptEnergyPct(Math.min(100, (latestWh / 1.0) * 100)); // vs 1 Wh baseline
-      setTotalEnergyPct(Math.min(100, (sessionWh / 10.0) * 100)); // vs 10 Wh baseline
-      setLitresWater(0); // TODO: placeholder
-    });
-    return stop;
-  }, []);
-
-  // ----- Study handlers -----
-  function handleStudyChange(next: StudySettings) {
-    setStudy((s) => ({ ...s, ...next }));
-    // if participantId changes, try to load their S1 total (so Session 2 can show it)
-    if (next.participantId && next.participantId !== study.participantId) {
-      try {
-        const key = `ai4all.study.s1TotalWh.${next.participantId}`;
-        const raw = localStorage.getItem(key);
-        setS1TotalWh(raw ? Number(raw) : null);
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  function handleStartTask() {
-    setStudy((s) => ({ ...s, taskStartedAt: Date.now(), taskEndedAt: null }));
-    setPromptMetrics([]); // reset metrics for the new task window
-  }
-
-  async function handleEndTask() {
-    const endedAt = Date.now();
-    setStudy((s) => ({ ...s, taskEndedAt: endedAt }));
-
-    // Persist Session-1 total locally so Session-2 can reference it
-    if (study.session === 1 && typeof sessionTotalWh === "number") {
-      const key = `ai4all.study.s1TotalWh.${study.participantId || "anon"}`;
-      localStorage.setItem(key, String(sessionTotalWh));
-      setS1TotalWh(sessionTotalWh);
-    }
-
-    // Build folder name and save full study bundle via existing /api/chats/save
-    const sessionName = `${(study.participantId || "anon").trim()}_s${study.session}`;
-
-    await saveStudySession({
-      name: sessionName,
-      history: messages, // transcript lifted from ChatPane via onHistoryChange
-      metrics: promptMetrics,
-      session: {
-        participantId: study.participantId,
-        group: study.group,
-        session: study.session,
-        taskStartedAt: study.taskStartedAt,
-        taskEndedAt: endedAt,
-        energy: {
-          latestPromptWh: latestPromptWh ?? null,
-          sessionTotalWh: sessionTotalWh ?? null,
-          todayTotalWh: todayTotalWh ?? null,
-          session1TotalWh: s1TotalWh ?? null, // handy for Session 2 audits
-        },
-      },
-    });
-  }
-
-  async function handleResetAll() {
-    // 1) Ask backend to reset per-model state & energy if we know the model
-    if (currentModel) {
-      try {
-        await resetChatSession(currentModel);
-      } catch (err) {
-        console.error("Failed to reset backend chat session", err);
-      }
-    }
-
-    // 2) Clear study timer but leave participant / group / session
-    setStudy((s) => ({
-      ...s,
-      taskStartedAt: null,
-      taskEndedAt: null,
-    }));
-
-    // 3) Clear prompt metrics + transcript
-    setPromptMetrics([]);
-    setMessages([{ role: "bot", text: "Hi! Ask me anything." }]);
-
-    // 4) Clear energy UI / summary state
-    setLatestPromptWh(null);
-    setSessionTotalWh(null);
-    setTodayTotalWh(null);
-    setPromptWhHistory([]);
-    lastPromptWhRef.current = null;
-    setKwhUsed(0);
-    setLastPromptEnergyPct(0);
-    setTotalEnergyPct(0);
-    setLitresWater(0);
-
-    // 5) Clear persisted chat so the remounted ChatPane starts fresh
-    try { localStorage.removeItem("ai4all.chat.messages"); } catch { /* ignore */ }
-
-    // 6) Remount ChatPane to reset its internal state (files, chat name, etc.)
-    setChatKey((k) => k + 1);
-  }
-
-    // When auto-load is on, preload the relevant model when switching non-chat tabs.
-    // (The chat tab is handled inside ChatPane via its own activeModel effect.)
+    // Auto-preload model on tab switch (non-chat)
     useEffect(() => {
         if (!autoLoadModel) return;
         let modelToLoad: string | undefined;
         switch (tab) {
-            case "vibe":      modelToLoad = vibeModel;     break;
-            case "web":       modelToLoad = webModel;      break;
-            case "image":     modelToLoad = imageModel;    break;
+            case "vibe": modelToLoad = vibeModel; break;
+            case "web": modelToLoad = webModel; break;
+            case "image": modelToLoad = imageModel; break;
             case "image_gen": modelToLoad = imageGenModel; break;
         }
         if (modelToLoad) handleRequestModelLoad(modelToLoad);
-    }, [tab, autoLoadModel]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [tab, autoLoadModel]);
 
-    const hasSidebar = study.group === "intervention";
-    const showSidebar = hasSidebar;
+    /* ── Handlers ── */
 
-    const vibeModel =
-        modeOverrides.vibe_coding || modeDefaults?.vibe_coding?.default;
-    const webModel = modeOverrides.web || modeDefaults?.web?.default;
-    const imageModel =
-        modeOverrides.image || modeDefaults?.image?.default;
-    const imageGenModel =
-        modeOverrides.image_gen || modeDefaults?.image_gen?.default;
+    async function handleRequestModelLoad(model: string) {
+        if (!model || modelLoading) return;
+        setModelLoading(true);
+        setModelLoadTarget(model);
+        try { await loadModel(model); }
+        catch (err) { console.error("Failed to pre-load model:", err); }
+        finally { setModelLoading(false); setModelLoadTarget(null); }
+    }
 
-    // (optional) chat general override, if you want to use it later
-    const chatModeModel =
-        modeOverrides.chat || modeDefaults?.chat?.default;
+    function handleNewChat() {
+        if (currentModel) {
+            resetChatSession(currentModel).catch(() => {});
+        }
+        setMessages([{ role: "bot", text: "Hi! Ask me anything." }]);
+        setActiveChatName("");
+        try { localStorage.removeItem("ai4all.chat.messages"); } catch {}
+        setChatKey((k) => k + 1);
+        setTab("chat");
+
+        // Reset energy for new chat
+        setLatestPromptWh(null);
+        setSessionTotalWh(null);
+        setPromptWhHistory([]);
+        lastPromptWhRef.current = null;
+    }
+
+    function handleChatSelect(name: string) {
+        setActiveChatName(name);
+        // Chat loading is handled by ChatPane internally when we switch
+        setTab("chat");
+    }
+
+    function handleCopyLastResponse() {
+        const lastBot = [...messages].reverse().find((m) => m.role === "bot");
+        if (!lastBot) return;
+        navigator.clipboard.writeText(lastBot.text).then(() => {
+            setCopyStatus("Copied!");
+            setTimeout(() => setCopyStatus(null), 2000);
+        }).catch(() => {
+            setCopyStatus("Failed");
+            setTimeout(() => setCopyStatus(null), 2000);
+        });
+    }
+
+    function handleSaveLastResponse() {
+        const lastBot = [...messages].reverse().find((m) => m.role === "bot");
+        if (!lastBot) return;
+        const blob = new Blob([lastBot.text], { type: "text/markdown" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `chat_response_${Date.now()}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function handleClearChat() {
+        if (currentModel) {
+            resetChatSession(currentModel).catch(() => {});
+        }
+        setMessages([{ role: "bot", text: "Hi! Ask me anything." }]);
+        setActiveChatName("");
+        try { localStorage.removeItem("ai4all.chat.messages"); } catch {}
+        setChatKey((k) => k + 1);
+        setLatestPromptWh(null);
+        setSessionTotalWh(null);
+        setPromptWhHistory([]);
+        lastPromptWhRef.current = null;
+    }
+
+    /* ── Conversation actions ── */
+    function handleToggleStar(name: string) {
+        togglePinnedChat(name);
+        setPinnedChats(getPinnedChats());
+    }
+
+    function handleDeleteChat(name: string) {
+        setChats((prev) => prev.filter((c) => c !== name));
+        if (activeChatName === name) {
+            setActiveChatName("");
+            handleNewChat();
+        }
+    }
+
+    function handleRenameChat(_name: string, _newName: string) {
+        // Rename is client-side only; the backend has no rename endpoint
+        setChats((prev) => prev.map((c) => c === _name ? _newName : c));
+        if (activeChatName === _name) setActiveChatName(_newName);
+    }
+
+    /* ── Study handlers ── */
+    function handleStudyChange(next: StudySettings) {
+        setStudy((s) => ({ ...s, ...next }));
+        if (next.participantId && next.participantId !== study.participantId) {
+            try {
+                const key = `ai4all.study.s1TotalWh.${next.participantId}`;
+                const raw = localStorage.getItem(key);
+                setS1TotalWh(raw ? Number(raw) : null);
+            } catch { /* ignore */ }
+        }
+    }
+
+    function handleStartTask() {
+        setStudy((s) => ({ ...s, taskStartedAt: Date.now(), taskEndedAt: null }));
+        setPromptMetrics([]);
+    }
+
+    async function handleEndTask() {
+        const endedAt = Date.now();
+        setStudy((s) => ({ ...s, taskEndedAt: endedAt }));
+        if (study.session === 1 && typeof sessionTotalWh === "number") {
+            const key = `ai4all.study.s1TotalWh.${study.participantId || "anon"}`;
+            localStorage.setItem(key, String(sessionTotalWh));
+            setS1TotalWh(sessionTotalWh);
+        }
+        const sessionName = `${(study.participantId || "anon").trim()}_s${study.session}`;
+        await saveStudySession({
+            name: sessionName,
+            history: messages,
+            metrics: promptMetrics,
+            session: {
+                participantId: study.participantId,
+                group: study.group,
+                session: study.session,
+                taskStartedAt: study.taskStartedAt,
+                taskEndedAt: endedAt,
+                energy: {
+                    latestPromptWh: latestPromptWh ?? null,
+                    sessionTotalWh: sessionTotalWh ?? null,
+                    todayTotalWh: todayTotalWh ?? null,
+                    session1TotalWh: s1TotalWh ?? null,
+                },
+            },
+        });
+    }
+
+    const userMessages = messages.filter((m) => m.role === "user");
+    const botMessages = messages.filter((m) => m.role === "bot");
 
     return (
-      <TipProvider>
-        <div className={`app-grid ${!showSidebar ? "no-sidebar" : ""}`}>
-            {showSidebar && (
-                <aside className="sidebar">
-                    <Sidebar
-                        kwhUsed={kwhUsed}
-                        lastPromptEnergyPct={lastPromptEnergyPct}
-                        totalEnergyPct={totalEnergyPct}
-                        litresWater={litresWater}
-                        showEUI={true}
-                        latestPromptWh={latestPromptWh}
+        <TipProvider>
+            <div className="app-grid">
+                {/* ── Sidebar ── */}
+                <Sidebar
+                    activeTab={tab}
+                    onTabChange={setTab}
+                    chats={chats}
+                    pinnedChats={pinnedChats}
+                    activeChatName={activeChatName}
+                    onChatSelect={handleChatSelect}
+                    onNewChat={handleNewChat}
+                    onToggleStar={handleToggleStar}
+                    onDeleteChat={handleDeleteChat}
+                    onRenameChat={handleRenameChat}
+                    latestPromptWh={latestPromptWh}
+                    sessionTotalWh={sessionTotalWh}
+                    promptCount={promptMetrics.length}
+                    last2AvgWh={last2AvgWh}
+                    theme={theme}
+                    onThemeChange={setTheme}
+                />
+
+                {/* ── Main Content ── */}
+                <section className="main-content">
+                    {/* Header bar */}
+                    <HeaderBar
+                        tab={tab}
+                        chatName={activeChatName}
+                        activeModel={activeModel || null}
+                        promptCount={userMessages.length}
+                        responseCount={botMessages.length}
+                        fileCount={0}
                         sessionTotalWh={sessionTotalWh}
-                        session1TotalWh={s1TotalWh}
-                        session={study.session}
-                        promptCount={promptMetrics.length}
                         last2AvgWh={last2AvgWh}
+                        onClearChat={handleClearChat}
+                        onCopyResponse={handleCopyLastResponse}
+                        onSaveResponse={handleSaveLastResponse}
+                        copyStatus={copyStatus}
                     />
-                    <TipsBox />
-                </aside>
-            )}
 
-      <section className="chat">
-        {/* Top bar tabs (row 1: auto) */}
-        <div className="panel">
-          <div className="panel-body" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button onClick={() => setTab("chat")}>Chat</button>
-            <button onClick={() => setTab("vibe")}>Vibe Coding</button>
-            <button onClick={() => setTab("web")}>Web</button>
-            <button onClick={() => setTab("image")}>Image</button>
-            <button onClick={() => setTab("image_gen")}>Image Gen</button>
-            <button onClick={() => setTab("settings")}>Settings</button>
-            <button onClick={() => setTab("testing")}>Testing</button>
-          </div>
-        </div>
+                    {/* Content area */}
+                    {tab === "chat" && (
+                        <div className="chat-area">
+                            <ChatPane
+                                key={chatKey}
+                                model={chatModeModel || undefined}
+                                fastModel={fastModel || undefined}
+                                deepModel={deepModel || undefined}
+                                autoLoadModel={autoLoadModel}
+                                modelLoading={modelLoading}
+                                onRequestModelLoad={handleRequestModelLoad}
+                                onUserPrompt={(m) => setPromptMetrics((arr) => [...arr, m])}
+                                onHistoryChange={(history) => setMessages(history)}
+                                onModelChange={(model) => setCurrentModel(model)}
+                            />
+                        </div>
+                    )}
 
-        {/* Main area (row 2: 1fr) */}
-        <div className="chat-main">
-          {tab === "chat" && (
-            <>
-              <StudyControls
-                settings={study}
-                onSettingsChange={handleStudyChange}
-                onStartTask={handleStartTask}
-                onEndTask={handleEndTask}
-                onReset={handleResetAll}
-                prompts={promptMetrics}
-                s1TotalWh={s1TotalWh}
-                collapsible
-                collapsed={controlsCollapsed}
-                onToggleCollapsed={() => setControlsCollapsed((v) => !v)}
-              />
-                <div className="chat-scroll-container">
-                    <ChatPane
-                        key={chatKey}
-                        model={chatModeModel || undefined}
-                        fastModel={fastModel || undefined}
-                        deepModel={deepModel || undefined}
-                        autoLoadModel={autoLoadModel}
-                        modelLoading={modelLoading}
-                        onRequestModelLoad={handleRequestModelLoad}
-                        onUserPrompt={(m) => setPromptMetrics((arr) => [...arr, m])}
-                        onHistoryChange={(history) => setMessages(history)}
-                        onModelChange={(model) => setCurrentModel(model)}
-                    />
-                </div>
-            </>
-          )}
+                    {tab === "vibe" && (
+                        <div className="pane-scroll">
+                            <VibeCodingPane model={vibeModel} />
+                        </div>
+                    )}
 
-          {tab === "vibe" && <VibeCodingPane model={vibeModel} />}
+                    {tab === "web" && (
+                        <div className="chat-area">
+                            <WebChatPane model={webModel} />
+                        </div>
+                    )}
 
-          {tab === "web" && <WebChatPane model={webModel} />}
+                    {tab === "image" && (
+                        <div className="pane-scroll">
+                            <ImageAnalysisPane model={imageModel} />
+                        </div>
+                    )}
 
-          {tab === "image" && <ImageAnalysisPane model={imageModel} />}
+                    {tab === "image_gen" && (
+                        <div className="pane-scroll">
+                            <ImageGenPane model={imageGenModel} />
+                        </div>
+                    )}
 
-          {tab === "image_gen" && <ImageGenPane model={imageGenModel} />}
+                    {tab === "settings" && (
+                        <div className="pane-scroll">
+                            <ModelManagerPane
+                                fastModel={fastModel}
+                                deepModel={deepModel}
+                                onFastModelChange={setFastModel}
+                                onDeepModelChange={setDeepModel}
+                                modeDefaults={modeDefaults || undefined}
+                                modeOverrides={modeOverrides}
+                                onModeOverrideChange={(mode, model) =>
+                                    setModeOverrides((prev) => {
+                                        const next = { ...prev };
+                                        if (!model) delete next[mode];
+                                        else next[mode] = model;
+                                        return next;
+                                    })
+                                }
+                                autoLoadModel={autoLoadModel}
+                                onAutoLoadModelChange={setAutoLoadModel}
+                                modelLoading={modelLoading}
+                                modelLoadTarget={modelLoadTarget}
+                            />
 
-          {tab === "settings" && (
-            <div style={{ overflow: "auto", height: "100%", minHeight: 0 }}>
-                      <ModelManagerPane
-                          fastModel={fastModel}
-                          deepModel={deepModel}
-                          onFastModelChange={setFastModel}
-                          onDeepModelChange={setDeepModel}
-                          modeDefaults={modeDefaults || undefined}
-                          modeOverrides={modeOverrides}
-                          onModeOverrideChange={(mode, model) =>
-                              setModeOverrides((prev) => {
-                                  const next = { ...prev };
-                                  if (!model) {
-                                      delete next[mode];  // revert to backend default
-                                  } else {
-                                      next[mode] = model;
-                                  }
-                                  return next;
-                              })
-                          }
-                          autoLoadModel={autoLoadModel}
-                          onAutoLoadModelChange={setAutoLoadModel}
-                          modelLoading={modelLoading}
-                          modelLoadTarget={modelLoadTarget}
-                      />
+                            {/* Study controls — accessible from Settings */}
+                            <div style={{ marginTop: 24 }}>
+                                <StudyControls
+                                    settings={study}
+                                    onSettingsChange={handleStudyChange}
+                                    onStartTask={handleStartTask}
+                                    onEndTask={handleEndTask}
+                                    onReset={handleNewChat}
+                                    prompts={promptMetrics}
+                                    s1TotalWh={s1TotalWh}
+                                    collapsible
+                                    collapsed={studyCollapsed}
+                                    onToggleCollapsed={() => setStudyCollapsed(v => !v)}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {tab === "testing" && (
+                        <div className="pane-scroll">
+                            <TestRunnerPane defaultModel={chatModeModel || undefined} />
+                        </div>
+                    )}
+                </section>
             </div>
-          )}
-
-          {tab === "testing" && (
-            <div style={{ overflow: "auto", height: "100%", minHeight: 0 }}>
-              <TestRunnerPane defaultModel={chatModeModel || undefined} />
-            </div>
-          )}
-
-          {/* {tab === "analytics" && <AnalyticsPane />} */}
-        </div>
-      </section>
-    </div>
-      </TipProvider>
-  );
+        </TipProvider>
+    );
 }

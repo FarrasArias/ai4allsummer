@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { API_BASE } from "../api";
 
 type PowerPoint = { date: string; power: number; model: string; type?: string };
