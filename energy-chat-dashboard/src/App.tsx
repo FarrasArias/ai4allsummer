@@ -625,7 +625,7 @@ export default function App() {
 
                     {tab === "conduct" && (
                         <div className="pane-scroll">
-                            <ConductPane />
+                            <ConductPane chatModel={activeModel || null} />
                         </div>
                     )}
 

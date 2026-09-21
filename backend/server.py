@@ -789,6 +789,27 @@ def conduct_index(slug: str, payload: dict | None = None):
     }
 
 
+@app.delete("/api/conduct/log/{slug}/index")
+def conduct_unindex(slug: str, model: str = ""):
+    """Remove a conduct log from a chat model's knowledge layer.
+
+    The inverse of the index endpoint. Indexing is per mode+model, so this
+    only affects the model given (or the last chat model used).
+    """
+    try:
+        path = conduct_store.log_path(slug)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    model = (
+        model
+        or _latest_chat_model
+        or get_model_config().get("chat", {}).get("default", CHAT_DEFAULT_MODEL)
+    )
+    removed = _get_chat_engine(model).remove_document(path.name)
+    return {"ok": True, "model": model, "removed": removed}
+
+
 # -----------------------------
 # About Uness
 # -----------------------------

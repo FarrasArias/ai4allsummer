@@ -196,6 +196,17 @@ class OllamaChat:
 
         return self.add_document(file_path)
 
+    def remove_document(self, name: str) -> int:
+        """Drop one document from the index by filename. Returns chunks removed.
+
+        The inverse of add_document() for a single file, so a document can be
+        un-indexed without clear_documents() taking everything else with it.
+        """
+        removed = self.rag.remove_document(name)
+        if name in self.loaded_files:
+            self.loaded_files.remove(name)
+        return removed
+
     def clear_documents(self) -> None:
         """
         Clear all loaded documents from context.

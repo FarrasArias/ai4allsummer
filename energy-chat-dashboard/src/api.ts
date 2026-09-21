@@ -664,6 +664,18 @@ export async function indexConductLog(
   return res.json();
 }
 
+export async function unindexConductLog(
+  slug: string,
+  model?: string,
+): Promise<{ ok?: boolean; error?: string; removed?: number; model?: string }> {
+  const qs = model ? `?model=${encodeURIComponent(model)}` : "";
+  const res = await fetch(
+    `${API_BASE}/api/conduct/log/${encodeURIComponent(slug)}/index${qs}`,
+    { method: "DELETE" },
+  );
+  return res.json();
+}
+
 export async function openConductPath(
   path: string,
   reveal = false,

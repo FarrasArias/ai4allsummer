@@ -1505,9 +1505,25 @@ body {
     background: var(--hover-bg);
 }
 
+/* Remove is disabled when the log isn't in this model's knowledge layer —
+   it has to read as unavailable, not merely unresponsive. */
+.conduct-log-action:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.conduct-log-action:disabled:hover {
+    background: none;
+}
+
 .conduct-log-status {
     font-size: 12px;
     color: var(--color-danger);
+}
+
+/* Same slot, but for "Added"/"Removed" — danger red would misread those. */
+.conduct-log-status.ok {
+    color: var(--color-text-dim);
 }
 
 @media (max-width: 900px) {

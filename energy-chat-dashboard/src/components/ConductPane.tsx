@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -6,6 +6,8 @@ import {
     getConductLogs,
     openConductPath,
     indexConductLog,
+    unindexConductLog,
+    getRagDocuments,
     type ConductLogSummary,
     type ConductPhase,
 } from "../api";
@@ -80,13 +82,16 @@ function parseSnippets(md: string): Snippet[] {
     return snippets;
 }
 
-function LogCard({ log, onOpen, onReveal, onIndex, indexing, status }: {
+function LogCard({ log, onOpen, onReveal, onIndex, onUnindex, busy, indexed, status }: {
     log: ConductLogSummary;
     onOpen: () => void;
     onReveal: () => void;
     onIndex: () => void;
-    indexing: boolean;
-    status: string | null;
+    onUnindex: () => void;
+    busy: "index" | "unindex" | null;
+    /** Indexed for the *current* chat model — indexing is per mode+model. */
+    indexed: boolean;
+    status: { text: string; tone: "ok" | "error" } | null;
 }) {
     const filename = log.path.split("/").pop() || log.path;
     return (
@@ -109,18 +114,31 @@ function LogCard({ log, onOpen, onReveal, onIndex, indexing, status }: {
                     type="button"
                     className="conduct-log-action"
                     onClick={onIndex}
-                    disabled={indexing}
+                    disabled={busy !== null}
                     title="Embed this log so later questions can retrieve it as a source document"
                 >
-                    {indexing ? "Adding…" : "Add to knowledge layer"}
+                    {busy === "index" ? "Adding…" : "Add to knowledge layer"}
                 </button>
-                {status && <span className="conduct-log-status">{status}</span>}
+                <button
+                    type="button"
+                    className="conduct-log-action"
+                    onClick={onUnindex}
+                    disabled={busy !== null || !indexed}
+                    title={
+                        indexed
+                            ? "Stop this log being retrieved as a source document"
+                            : "Not currently in the knowledge layer for this model"
+                    }
+                >
+                    {busy === "unindex" ? "Removing…" : "Remove from knowledge layer"}
+                </button>
+                {status && <span className={`conduct-log-status ${status.tone}`}>{status.text}</span>}
             </div>
         </div>
     );
 }
 
-export default function ConductPane() {
+export default function ConductPane({ chatModel }: { chatModel?: string | null }) {
     const [reference, setReference] = useState("");
     const [snippetsMd, setSnippetsMd] = useState("");
     const [loaded, setLoaded] = useState(false);
@@ -129,8 +147,10 @@ export default function ConductPane() {
 
     const [logs, setLogs] = useState<ConductLogSummary[]>([]);
     const [logsLoaded, setLogsLoaded] = useState(false);
-    const [logStatus, setLogStatus] = useState<{ slug: string; text: string } | null>(null);
-    const [indexingSlug, setIndexingSlug] = useState<string | null>(null);
+    const [logStatus, setLogStatus] = useState<{ slug: string; text: string; tone: "ok" | "error" } | null>(null);
+    const [busy, setBusy] = useState<{ slug: string; kind: "index" | "unindex" } | null>(null);
+    /** Filenames currently in the RAG cache for chat + chatModel. */
+    const [indexedDocs, setIndexedDocs] = useState<string[]>([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -155,6 +175,16 @@ export default function ConductPane() {
         return () => { cancelled = true; };
     }, []);
 
+    // Which logs are already in the knowledge layer. Scoped to the active
+    // chat model, because the RAG cache is per mode+model.
+    const refreshIndexed = useCallback(async () => {
+        if (!chatModel) { setIndexedDocs([]); return; }
+        try { setIndexedDocs(await getRagDocuments("chat", chatModel)); }
+        catch { setIndexedDocs([]); }
+    }, [chatModel]);
+
+    useEffect(() => { void refreshIndexed(); }, [refreshIndexed]);
+
     const snippets = parseSnippets(snippetsMd);
 
     function handleCopy(snippet: Snippet) {
@@ -167,24 +197,42 @@ export default function ConductPane() {
     async function handleOpenLog(log: ConductLogSummary, reveal: boolean) {
         const res = await openConductPath(log.path, reveal).catch(() => ({ ok: false }));
         if (!res.ok) {
-            setLogStatus({ slug: log.slug, text: reveal ? "Couldn't reveal" : "Couldn't open" });
+            setLogStatus({ slug: log.slug, text: reveal ? "Couldn't reveal" : "Couldn't open", tone: "error" });
             setTimeout(() => setLogStatus((s) => (s?.slug === log.slug ? null : s)), 2500);
         }
     }
 
+    function flashStatus(slug: string, text: string, tone: "ok" | "error" = "ok") {
+        setLogStatus({ slug, text, tone });
+        setTimeout(() => setLogStatus((s) => (s?.slug === slug ? null : s)), 3000);
+    }
+
     async function handleIndexLog(log: ConductLogSummary) {
-        setIndexingSlug(log.slug);
-        const res = await indexConductLog(log.slug).catch(() => ({ error: "failed" as const }));
-        setIndexingSlug(null);
+        setBusy({ slug: log.slug, kind: "index" });
+        const res = await indexConductLog(log.slug, chatModel ?? undefined)
+            .catch(() => ({ error: "failed" as const }));
+        setBusy(null);
 
         let text: string;
-        if ("error" in res && res.error) text = "Couldn't add";
+        let tone: "ok" | "error" = "ok";
+        if ("error" in res && res.error) { text = "Couldn't add"; tone = "error"; }
         else if (res.skipped) text = "Already in context";
         else if (typeof res.chunks === "number") text = `Added · ${res.chunks} sections`;
         else text = "Added";
 
-        setLogStatus({ slug: log.slug, text });
-        setTimeout(() => setLogStatus((s) => (s?.slug === log.slug ? null : s)), 3000);
+        flashStatus(log.slug, text, tone);
+        void refreshIndexed();
+    }
+
+    async function handleUnindexLog(log: ConductLogSummary) {
+        setBusy({ slug: log.slug, kind: "unindex" });
+        const res = await unindexConductLog(log.slug, chatModel ?? undefined)
+            .catch(() => ({ error: "failed" as const }));
+        setBusy(null);
+
+        const failed = "error" in res && res.error;
+        flashStatus(log.slug, failed ? "Couldn't remove" : "Removed", failed ? "error" : "ok");
+        void refreshIndexed();
     }
 
     return (
@@ -259,8 +307,10 @@ export default function ConductPane() {
                                     onOpen={() => handleOpenLog(log, false)}
                                     onReveal={() => handleOpenLog(log, true)}
                                     onIndex={() => handleIndexLog(log)}
-                                    indexing={indexingSlug === log.slug}
-                                    status={logStatus?.slug === log.slug ? logStatus.text : null}
+                                    onUnindex={() => handleUnindexLog(log)}
+                                    busy={busy?.slug === log.slug ? busy.kind : null}
+                                    indexed={indexedDocs.includes(`${log.slug}.md`)}
+                                    status={logStatus?.slug === log.slug ? { text: logStatus.text, tone: logStatus.tone } : null}
                                 />
                             ))}
                         </div>
