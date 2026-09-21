@@ -142,7 +142,7 @@ def _entry_markdown(phase: str, ts: float, note: str, prompt: str, response: str
         if model:
             heading += f" · {model}"
         if energy_wh is not None:
-            heading += f" · {energy_wh:g} Wh"
+            heading += f" · {energy_wh:.3f} Wh"
 
     lines = [heading, ""]
     if note.strip():

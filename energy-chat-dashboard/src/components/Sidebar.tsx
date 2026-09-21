@@ -57,6 +57,9 @@ type Props = {
 
     /* Search */
     onSearch?: (query: string) => Promise<string[]>;
+
+    /* Conduct — hidden when the Settings toggle is off */
+    showConductTools?: boolean;
 };
 
 /* ═══════════════════════════════════════════════
@@ -284,6 +287,7 @@ export default function Sidebar({
     theme = "system",
     onThemeChange,
     onSearch,
+    showConductTools = true,
 }: Props) {
     const [filter, setFilter] = useState(FILTER_ALL);
     const [searchText, setSearchText] = useState("");
@@ -418,7 +422,9 @@ export default function Sidebar({
 
                 {/* ── Mode Nav ── */}
                 <nav className="sidebar-nav">
-                    {(["chat", "vibe", "web", "image", "conduct"] as const).map((mode) => (
+                    {(["chat", "vibe", "web", "image", "conduct"] as const)
+                        .filter((mode) => mode !== "conduct" || showConductTools)
+                        .map((mode) => (
                         <button
                             key={mode}
                             className={`sidebar-nav-item ${activeTab === mode || (mode === "image" && activeTab === "image_gen") ? "active" : ""}`}

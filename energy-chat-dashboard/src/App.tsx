@@ -86,6 +86,12 @@ export default function App() {
         try { return localStorage.getItem("ai4all.autoLoadModel") === "true"; }
         catch { return false; }
     });
+
+    /* Conduct tools visibility — default on, per CONDUCT_STAGE1.md §6 */
+    const [showConductTools, setShowConductTools] = useState<boolean>(() => {
+        try { return localStorage.getItem("ai4all.showConductTools") !== "false"; }
+        catch { return true; }
+    });
     const [modelLoading, setModelLoading] = useState(false);
     const [modelLoadTarget, setModelLoadTarget] = useState<string | null>(null);
 
@@ -198,6 +204,13 @@ export default function App() {
         try { localStorage.setItem("ai4all.autoLoadModel", String(autoLoadModel)); }
         catch { /* ignore */ }
     }, [autoLoadModel]);
+
+    useEffect(() => {
+        try { localStorage.setItem("ai4all.showConductTools", String(showConductTools)); }
+        catch { /* ignore */ }
+        // Don't strand the user on a tab that just disappeared from the nav.
+        if (!showConductTools && tab === "conduct") setTab("chat");
+    }, [showConductTools, tab]);
 
     // Load mode defaults from backend
     useEffect(() => {
@@ -542,6 +555,7 @@ export default function App() {
                     theme={theme}
                     onThemeChange={setTheme}
                     onSearch={handleSearch}
+                    showConductTools={showConductTools}
                 />
 
                 {/* ── Main Content ── */}
@@ -560,7 +574,7 @@ export default function App() {
                         onCopyResponse={handleCopyLastResponse}
                         onSaveResponse={handleSaveLastResponse}
                         copyStatus={copyStatus}
-                        onAppendLog={handleAppendLog}
+                        onAppendLog={showConductTools ? handleAppendLog : undefined}
                         logTitleDefault={defaultLogTitle}
                         showLogTitleField={!logSlug}
                     />
@@ -648,6 +662,29 @@ export default function App() {
                                 modelLoading={modelLoading}
                                 modelLoadTarget={modelLoadTarget}
                             />
+
+                            {/* Conduct tools — CONDUCT_STAGE1.md §6 */}
+                            <div style={{ marginTop: 24 }}>
+                                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", fontSize: 13 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={showConductTools}
+                                        onChange={(e) => setShowConductTools(e.target.checked)}
+                                        style={{ marginTop: 2, flexShrink: 0 }}
+                                    />
+                                    <div>
+                                        <strong>Show Conduct tools</strong>
+                                        <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
+                                            When enabled (default): the Conduct page appears in the sidebar
+                                            and chat gains a "→ Log" button for recording a turn against a
+                                            phase.
+                                            <br />
+                                            When disabled: both are hidden. Your existing log files are left
+                                            untouched on disk.
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
 
                             {/* Study controls — accessible from Settings */}
                             <div style={{ marginTop: 24 }}>
