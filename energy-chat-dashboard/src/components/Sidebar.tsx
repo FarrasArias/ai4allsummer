@@ -4,9 +4,18 @@ import { useState, useEffect, useRef } from "react";
 export type ModeTab = "chat" | "vibe" | "web" | "image" | "image_gen" | "settings" | "testing";
 export type ThemeChoice = "light" | "dark" | "system";
 
+type ChatMeta = {
+    name: string;
+    mode?: string;
+    created_at?: number;
+    updated_at?: number;
+};
+
 type ConvItem = {
     name: string;
     pinned: boolean;
+    mode?: string;
+    updated_at?: number;
 };
 
 type Grade = "A" | "B" | "C" | "D" | "E";
@@ -25,7 +34,7 @@ type Props = {
     onTabChange: (tab: ModeTab) => void;
 
     /* Conversation list */
-    chats: string[];
+    chats: ChatMeta[];
     pinnedChats: string[];
     activeChatName: string;
     onChatSelect: (name: string) => void;
@@ -47,7 +56,7 @@ type Props = {
     onThemeChange?: (theme: ThemeChoice) => void;
 
     /* Search */
-    onSearch?: (query: string) => void;
+    onSearch?: (query: string) => Promise<string[]>;
 };
 
 /* ═══════════════════════════════════════════════
@@ -217,6 +226,23 @@ const FILTER_KEYS = [
     { key: "image", mode: "image" },
 ];
 
+const DATE_GROUP_ORDER = ["Today", "Yesterday", "This week", "This month", "Older"] as const;
+
+function getDateGroup(timestamp?: number): string {
+    if (!timestamp) return "Older";
+    const now = new Date();
+    const d = new Date(timestamp * 1000); // backend sends epoch seconds
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
+    const weekAgo = new Date(today.getTime() - 7 * 86400000);
+    const monthAgo = new Date(today.getTime() - 30 * 86400000);
+    if (d >= today) return "Today";
+    if (d >= yesterday) return "Yesterday";
+    if (d >= weekAgo) return "This week";
+    if (d >= monthAgo) return "This month";
+    return "Older";
+}
+
 export default function Sidebar({
     activeTab,
     onTabChange,
@@ -238,6 +264,8 @@ export default function Sidebar({
 }: Props) {
     const [filter, setFilter] = useState(FILTER_ALL);
     const [searchText, setSearchText] = useState("");
+    const [contentMatches, setContentMatches] = useState<string[] | null>(null);
+    const [dateGroupMode, setDateGroupMode] = useState(false);
     const [energyOpen, setEnergyOpen] = useState(false);
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState>({
         visible: false, x: 0, y: 0, chatName: "", isPinned: false,
@@ -266,29 +294,70 @@ export default function Sidebar({
 
     /* ── Build conversation list ── */
     const filteredChats: ConvItem[] = chats
-        .map((name) => ({ name, pinned: pinnedChats.includes(name) }))
+        .map((c) => ({ name: c.name, pinned: pinnedChats.includes(c.name), mode: c.mode, updated_at: c.updated_at }))
         .filter((c) => {
+            if (filter === FILTER_ALL) return true;
             if (filter === FILTER_STARRED) return c.pinned;
-            return true;
+            return c.mode === filter; // mode pill filtering
         })
         .filter((c) => {
             if (!searchText.trim()) return true;
-            return c.name.toLowerCase().includes(searchText.toLowerCase());
+            if (c.name.toLowerCase().includes(searchText.toLowerCase())) return true;
+            if (contentMatches?.includes(c.name)) return true;
+            return false;
         });
 
     const sortedChats = [...filteredChats].sort((a, b) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
+        if (dateGroupMode) return (b.updated_at || 0) - (a.updated_at || 0);
         return a.name.localeCompare(b.name);
     });
 
     const starred = sortedChats.filter((c) => c.pinned);
     const rest = sortedChats.filter((c) => !c.pinned);
 
-    function handleSearchKeyDown(e: React.KeyboardEvent) {
+    /* Date groups for the rest (non-starred) conversations */
+    const dateGroups: [string, ConvItem[]][] = dateGroupMode
+        ? DATE_GROUP_ORDER.map(label => [label, rest.filter(c => getDateGroup(c.updated_at) === label)] as [string, ConvItem[]])
+            .filter(([, items]) => items.length > 0)
+        : [];
+
+    async function handleSearchKeyDown(e: React.KeyboardEvent) {
         if (e.key === "Enter" && searchText.trim() && onSearch) {
-            onSearch(searchText.trim());
+            const names = await onSearch(searchText.trim());
+            setContentMatches(names.length > 0 ? names : null);
         }
+    }
+
+    function renderConvRow(c: ConvItem) {
+        return (
+            <button
+                key={c.name}
+                className={`sidebar-conv-item ${c.name === activeChatName ? "active" : ""}`}
+                onClick={() => onChatSelect(c.name)}
+                onContextMenu={(e) => handleConvContextMenu(e, c.name, c.pinned)}
+            >
+                <span className="sidebar-conv-icon">
+                    {c.mode ? <ModeIcon mode={c.mode} size={14} /> : <IconChat size={14} />}
+                </span>
+                <span className="sidebar-conv-title">{c.name}</span>
+                {c.pinned && (
+                    <>
+                        <span className="sidebar-conv-star"><IconStar size={12} filled /></span>
+                        <span className="sidebar-conv-actions">
+                            <button title="Rename" onClick={(e) => {
+                                e.stopPropagation();
+                                const newName = prompt("Rename conversation:", c.name);
+                                if (newName && newName.trim() && newName !== c.name) {
+                                    onRenameChat?.(c.name, newName.trim());
+                                }
+                            }}><IconPencil size={12} /></button>
+                        </span>
+                    </>
+                )}
+            </button>
+        );
     }
 
     return (
@@ -338,7 +407,11 @@ export default function Sidebar({
                 <div className="sidebar-history-header">
                     <span className="sidebar-history-label">History</span>
                     <div className="sidebar-history-actions">
-                        <button title="Calendar view"><IconCalendar size={14} /></button>
+                        <button
+                            title={dateGroupMode ? "Flat view" : "Group by date"}
+                            className={dateGroupMode ? "active" : ""}
+                            onClick={() => setDateGroupMode(!dateGroupMode)}
+                        ><IconCalendar size={14} /></button>
                         <button title="Manage conversations"><IconLayers size={14} /></button>
                     </div>
                 </div>
@@ -350,7 +423,10 @@ export default function Sidebar({
                         type="text"
                         placeholder="Search conversations..."
                         value={searchText}
-                        onChange={(e) => setSearchText(e.target.value)}
+                        onChange={(e) => {
+                            setSearchText(e.target.value);
+                            if (!e.target.value.trim()) setContentMatches(null);
+                        }}
                         onKeyDown={handleSearchKeyDown}
                     />
                 </div>
@@ -371,50 +447,40 @@ export default function Sidebar({
 
                 {/* ── Conversation List ── */}
                 <div className="sidebar-conv-list">
+                    {/* Starred section (always at top) */}
                     {starred.length > 0 && (
                         <>
                             <div className="sidebar-section-header">
                                 <span>Starred</span>
                                 <span className="sidebar-section-count">{starred.length}</span>
                             </div>
-                            {starred.map((c) => (
-                                <button
-                                    key={c.name}
-                                    className={`sidebar-conv-item ${c.name === activeChatName ? "active" : ""}`}
-                                    onClick={() => onChatSelect(c.name)}
-                                    onContextMenu={(e) => handleConvContextMenu(e, c.name, true)}
-                                >
-                                    <span className="sidebar-conv-icon"><IconChat size={14} /></span>
-                                    <span className="sidebar-conv-title">{c.name}</span>
-                                    <span className="sidebar-conv-star"><IconStar size={12} filled /></span>
-                                    <span className="sidebar-conv-actions">
-                                        <button title="Edit" onClick={(e) => { e.stopPropagation(); }}><IconPencil size={12} /></button>
-                                    </span>
-                                </button>
-                            ))}
+                            {starred.map((c) => renderConvRow(c))}
                         </>
                     )}
 
-                    {rest.length > 0 && (
-                        <>
-                            {starred.length > 0 && (
+                    {/* Rest of conversations: flat or date-grouped */}
+                    {dateGroupMode ? (
+                        dateGroups.map(([groupLabel, items]) => (
+                            <div key={groupLabel}>
                                 <div className="sidebar-section-header">
-                                    <span>Recent</span>
-                                    <span className="sidebar-section-count">{rest.length}</span>
+                                    <span>{groupLabel}</span>
+                                    <span className="sidebar-section-count">{items.length}</span>
                                 </div>
-                            )}
-                            {rest.map((c) => (
-                                <button
-                                    key={c.name}
-                                    className={`sidebar-conv-item ${c.name === activeChatName ? "active" : ""}`}
-                                    onClick={() => onChatSelect(c.name)}
-                                    onContextMenu={(e) => handleConvContextMenu(e, c.name, false)}
-                                >
-                                    <span className="sidebar-conv-icon"><IconChat size={14} /></span>
-                                    <span className="sidebar-conv-title">{c.name}</span>
-                                </button>
-                            ))}
-                        </>
+                                {items.map((c) => renderConvRow(c))}
+                            </div>
+                        ))
+                    ) : (
+                        rest.length > 0 && (
+                            <>
+                                {starred.length > 0 && (
+                                    <div className="sidebar-section-header">
+                                        <span>Recent</span>
+                                        <span className="sidebar-section-count">{rest.length}</span>
+                                    </div>
+                                )}
+                                {rest.map((c) => renderConvRow(c))}
+                            </>
+                        )
                     )}
 
                     {sortedChats.length === 0 && (

@@ -873,11 +873,31 @@ def analyze_image(
 # -----------------------------
 @app.get("/api/chats")
 def list_chats():
-    items = [
-        d
-        for d in os.listdir(CHAT_DIR)
-        if os.path.isdir(os.path.join(CHAT_DIR, d))
-    ]
+    items = []
+    for d in os.listdir(CHAT_DIR):
+        chat_path = os.path.join(CHAT_DIR, d)
+        if not os.path.isdir(chat_path):
+            continue
+        entry = {"name": d}
+        meta_path = os.path.join(chat_path, "meta.json")
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    entry.update(json.load(f))
+            except (json.JSONDecodeError, IOError):
+                pass
+        if "updated_at" not in entry:
+            try:
+                entry["updated_at"] = os.path.getmtime(chat_path)
+            except OSError:
+                pass
+        if "created_at" not in entry:
+            try:
+                entry["created_at"] = os.path.getctime(chat_path)
+            except OSError:
+                pass
+        items.append(entry)
+    items.sort(key=lambda x: x.get("updated_at", 0), reverse=True)
     return {"chats": items}
 
 
@@ -894,8 +914,12 @@ def save_chat(
     interview_text: str | None = Form(
         None
     ),  # optional qualitative notes
+    meta_json: str | None = Form(
+        None
+    ),  # mode, created_at, updated_at
 ):
     path = os.path.join(CHAT_DIR, name)
+    is_new = not os.path.isdir(path)
     os.makedirs(path, exist_ok=True)
 
     with open(os.path.join(path, "history.json"), "w", encoding="utf-8") as f:
@@ -913,6 +937,26 @@ def save_chat(
         with open(os.path.join(path, "interview.txt"), "w", encoding="utf-8") as f:
             f.write(interview_text)
 
+    # Persist / update metadata (mode, timestamps)
+    meta_path = os.path.join(path, "meta.json")
+    meta = {}
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    if meta_json:
+        try:
+            meta.update(json.loads(meta_json))
+        except json.JSONDecodeError:
+            pass
+    if is_new and "created_at" not in meta:
+        meta["created_at"] = time.time()
+    meta["updated_at"] = time.time()
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f)
+
     return {"ok": True}
 
 
@@ -923,6 +967,27 @@ def load_chat_endpoint(name: str):
         return JSONResponse({"error": "not found"}, status_code=404)
     with open(path, "r", encoding="utf-8") as f:
         return JSONResponse(json.load(f))
+
+
+@app.delete("/api/chats/{name}")
+def delete_chat_endpoint(name: str):
+    path = os.path.join(CHAT_DIR, name)
+    if not os.path.isdir(path):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    shutil.rmtree(path)
+    return {"ok": True}
+
+
+@app.post("/api/chats/rename")
+def rename_chat_endpoint(old_name: str = Form(...), new_name: str = Form(...)):
+    old_path = os.path.join(CHAT_DIR, old_name)
+    new_path = os.path.join(CHAT_DIR, new_name)
+    if not os.path.isdir(old_path):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if os.path.exists(new_path):
+        return JSONResponse({"error": "name already exists"}, status_code=409)
+    os.rename(old_path, new_path)
+    return {"ok": True}
 
 
 @app.get("/api/chats-search")
