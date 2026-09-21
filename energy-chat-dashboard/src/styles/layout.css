@@ -1247,6 +1247,21 @@ body {
     border-color: var(--color-accent);
 }
 
+/* Shown only when a first-append title would land in a log that already
+   exists — informational, not a warning: appending there is often what
+   the user wants. */
+.log-popover-collision {
+    margin: 6px 0 0;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--color-text-dim);
+}
+
+.log-popover-collision strong {
+    color: var(--color-text);
+    font-weight: 600;
+}
+
 .log-popover-phases {
     display: grid;
     grid-template-columns: 1fr 1fr;

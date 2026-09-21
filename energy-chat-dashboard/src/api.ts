@@ -626,6 +626,17 @@ export async function getConductContent(): Promise<{ reference: string; snippets
   return res.json();
 }
 
+/**
+ * Derive a conduct log's filename stem from its title.
+ * Must stay in step with conduct_store.slugify() on the backend — the
+ * popover's "this log already exists" check compares against it.
+ */
+export function slugifyConductTitle(text: string, maxWords = 4): string {
+  const words = text.trim().split(/\s+/).slice(0, maxWords).join(" ");
+  const slug = words.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug || "conduct-log";
+}
+
 export type ConductLogSummary = {
   slug: string;
   title: string;

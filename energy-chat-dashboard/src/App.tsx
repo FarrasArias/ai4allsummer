@@ -29,6 +29,7 @@ import {
     setPinnedChats as savePinnedChats,
     togglePinnedChat,
     appendConductLog,
+    slugifyConductTitle,
     type ChatInfo,
     type ModeDefaults,
     type ModeKey,
@@ -40,12 +41,6 @@ import StudyControls, { loadPersistedStudySettings } from "./components/StudyCon
 import type { StudySettings, PromptMetric } from "./components/StudyControls";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
-
-function slugifyTitle(text: string, maxWords = 4): string {
-    const words = text.trim().split(/\s+/).slice(0, maxWords).join(" ");
-    const slug = words.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-    return slug || "conduct-log";
-}
 
 function generateChatName(messages: Msg[]): string {
     const firstUser = messages.find(m => m.role === "user");
@@ -383,7 +378,7 @@ export default function App() {
             if (messages[i].role === "user") { precedingUser = messages[i]; break; }
         }
 
-        const slug = logSlug || slugifyTitle(args.title || defaultLogTitle);
+        const slug = logSlug || slugifyConductTitle(args.title || defaultLogTitle);
 
         try {
             const res = await appendConductLog(slug, {

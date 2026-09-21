@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { ConductPhase } from "../api";
+import { getConductLogs, slugifyConductTitle } from "../api";
+import type { ConductPhase, ConductLogSummary } from "../api";
 
 const PHASES: { key: ConductPhase; label: string; hint: string }[] = [
     { key: "frame", label: "Frame", hint: "Goal, audience, constraints, real documents" },
@@ -7,6 +8,10 @@ const PHASES: { key: ConductPhase; label: string; hint: string }[] = [
     { key: "refine", label: "Refine", hint: "Draft, then attack the draft" },
     { key: "commit", label: "Commit", hint: "Your choice, your rationale, no AI" },
 ];
+
+function formatUpdated(ts: number): string {
+    return new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 type Props = {
     open: boolean;
@@ -22,7 +27,14 @@ export default function LogPopover({ open, onClose, showTitleField, defaultTitle
     const [title, setTitle] = useState(defaultTitle);
     const [submitting, setSubmitting] = useState(false);
     const [status, setStatus] = useState<string | null>(null);
+    const [existingLogs, setExistingLogs] = useState<ConductLogSummary[]>([]);
     const ref = useRef<HTMLDivElement>(null);
+
+    // The title is only asked for on a session's first append, and that is
+    // the only moment a new slug can collide with a log already on disk.
+    const collision = showTitleField
+        ? existingLogs.find((l) => l.slug === slugifyConductTitle(title)) ?? null
+        : null;
 
     // Reset the compose state each time the popover opens; deliberately not
     // re-running when defaultTitle changes so an in-progress edit isn't
@@ -37,6 +49,15 @@ export default function LogPopover({ open, onClose, showTitleField, defaultTitle
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
+
+    useEffect(() => {
+        if (!open || !showTitleField) return;
+        let cancelled = false;
+        getConductLogs()
+            .then((logs) => { if (!cancelled) setExistingLogs(logs); })
+            .catch(() => { if (!cancelled) setExistingLogs([]); });
+        return () => { cancelled = true; };
+    }, [open, showTitleField]);
 
     useEffect(() => {
         if (!open) return;
@@ -84,6 +105,14 @@ export default function LogPopover({ open, onClose, showTitleField, defaultTitle
                         onChange={(e) => setTitle(e.target.value)}
                         placeholder="Log title"
                     />
+                    {collision && (
+                        <p className="log-popover-collision">
+                            <strong>{collision.slug}</strong> already exists — {collision.entry_count}{" "}
+                            {collision.entry_count === 1 ? "entry" : "entries"}, updated{" "}
+                            {formatUpdated(collision.updated_at)}. Appending adds to that log; edit
+                            the title to start a separate one.
+                        </p>
+                    )}
                 </div>
             )}
 
@@ -118,7 +147,7 @@ export default function LogPopover({ open, onClose, showTitleField, defaultTitle
                     onClick={handleAppend}
                     disabled={!phase || submitting}
                 >
-                    {status || (submitting ? "Adding…" : "Append")}
+                    {status || (submitting ? "Adding…" : collision ? "Append to existing log" : "Append")}
                 </button>
             </div>
         </div>
