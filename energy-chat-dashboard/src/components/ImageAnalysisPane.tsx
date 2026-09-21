@@ -10,8 +10,31 @@ type Props = {
   model?: string;
 };
 
+// A File can't go in localStorage, but a data URL can — read the file once
+// on selection and persist that instead, so the preview survives a tab
+// switch (the pane unmounts like every other tab) without re-uploading.
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function dataUrlToFile(dataUrl: string, filename: string): Promise<File> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  return new File([blob], filename, { type: blob.type });
+}
+
 export default function ImageAnalysisPane({ model }: Props) {
-  const [image, setImage] = useState<File | null>(null);
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(() => {
+    try { return localStorage.getItem("ai4all.image.dataUrl"); } catch { return null; }
+  });
+  const [imageName, setImageName] = useState<string>(() => {
+    try { return localStorage.getItem("ai4all.image.name") || "image"; } catch { return "image"; }
+  });
   const [prompt, setPrompt] = useState<string>("Describe this image.");
   const [turns, setTurns] = useState<Turn[]>(() => {
     try {
@@ -26,12 +49,35 @@ export default function ImageAnalysisPane({ model }: Props) {
   const [isStreaming, setIsStreaming] = useState(false);
 
   // Persist Q&A turns so they survive tab switches and page refreshes
-  // (the selected image File itself can't be serialized — user re-picks it)
   useEffect(() => {
     try {
       localStorage.setItem("ai4all.image.turns", JSON.stringify(turns));
     } catch { /* ignore */ }
   }, [turns]);
+
+  // Persist the current image itself, for the same reason. A large photo's
+  // data URL can exceed the localStorage quota — if so, the image just
+  // won't survive a tab switch (same as before), but nothing breaks.
+  useEffect(() => {
+    try {
+      if (imageDataUrl) {
+        localStorage.setItem("ai4all.image.dataUrl", imageDataUrl);
+        localStorage.setItem("ai4all.image.name", imageName);
+      } else {
+        localStorage.removeItem("ai4all.image.dataUrl");
+        localStorage.removeItem("ai4all.image.name");
+      }
+    } catch { /* quota exceeded */ }
+  }, [imageDataUrl, imageName]);
+
+  function selectImage(f: File) {
+    readFileAsDataUrl(f)
+      .then((dataUrl) => {
+        setImageDataUrl(dataUrl);
+        setImageName(f.name);
+      })
+      .catch(() => {});
+  }
 
   // Paste an image (e.g. a screenshot of a PDF figure) directly into the pane.
   // Window-level listener — the pane only mounts while its tab is active.
@@ -43,7 +89,7 @@ export default function ImageAnalysisPane({ model }: Props) {
         if (item.type.startsWith("image/")) {
           const f = item.getAsFile();
           if (f) {
-            setImage(f);
+            selectImage(f);
             e.preventDefault();
             return;
           }
@@ -59,15 +105,16 @@ export default function ImageAnalysisPane({ model }: Props) {
     const f = Array.from(e.dataTransfer.files).find((x) =>
       x.type.startsWith("image/"),
     );
-    if (f) setImage(f);
+    if (f) selectImage(f);
   }
 
   const activeModel = model;
 
   async function handleAnalyze() {
-    if (!image || !activeModel || !prompt.trim()) return;
+    if (!imageDataUrl || !activeModel || !prompt.trim()) return;
 
     const currentPrompt = prompt.trim();
+    const imageFile = await dataUrlToFile(imageDataUrl, imageName);
 
     // Add new turn and get its index
     setTurns((prev) => [...prev, { prompt: currentPrompt, response: "" }]);
@@ -78,7 +125,7 @@ export default function ImageAnalysisPane({ model }: Props) {
 
     try {
       await streamImageAnalysis(
-        { prompt: currentPrompt, model: activeModel, image },
+        { prompt: currentPrompt, model: activeModel, image: imageFile },
         (delta: string) => {
           accumulatedResponse += delta;
           // Update the last turn's response
@@ -147,20 +194,23 @@ export default function ImageAnalysisPane({ model }: Props) {
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => setImage(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) selectImage(f);
+              }}
             />
-            <button type="button" onClick={handleAnalyze} disabled={!image || !activeModel}>
+            <button type="button" onClick={handleAnalyze} disabled={!imageDataUrl || !activeModel}>
               Analyze image
             </button>
           </div>
         </div>
       </div>
 
-      {image && (
+      {imageDataUrl && (
         <div className="panel">
           <div className="panel-body" style={{ display: "flex", justifyContent: "center" }}>
             <img
-              src={URL.createObjectURL(image)}
+              src={imageDataUrl}
               alt="Selected"
               style={{ maxHeight: 200, maxWidth: "100%", objectFit: "contain" }}
             />

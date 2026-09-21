@@ -87,12 +87,14 @@ from utilities.power_usage import (
     get_default_power_usages,
 )
 from utilities.date_time import get_datetime
+from utilities import conduct_store
+from utilities import about_store
 
 # Shared chat engine with memory + doc window
 from chat_core import OllamaChat
 
 # -----------------------------
-# Global state 
+# Global state
 # -----------------------------
 CHAT_DIR = "chats"
 IMG_DIR = "images"
@@ -104,6 +106,8 @@ IMAGE_UPLOAD_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 os.makedirs(CHAT_DIR, exist_ok=True)
 os.makedirs(IMG_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
+conduct_store.ensure_initialized()
+about_store.ensure_initialized()
 
 # Power tracking
 _llm_running_flag = {"mode": "None"}  # "Chat" | "Image" | "None"
@@ -708,6 +712,57 @@ def rag_documents(mode: str = "chat", model: str = ""):
     safe_model = "".join(c if c.isalnum() or c in "._-" else "_" for c in model)
     store = RagStore(persist_dir=_Path("rag_cache") / f"{mode}_{safe_model}")
     return {"documents": store.document_names()}
+
+
+# -----------------------------
+# Conduct: reference/snippets content, and the append-only log
+# -----------------------------
+@app.get("/api/conduct/content")
+def conduct_content():
+    """reference.md + snippets.md, re-read from disk on every call so edits
+    made in an external editor show up without a restart."""
+    return conduct_store.read_content()
+
+
+@app.get("/api/conduct/logs")
+def conduct_logs():
+    return {"logs": conduct_store.list_logs()}
+
+
+@app.post("/api/conduct/log/{slug}/append")
+def conduct_append(slug: str, payload: dict):
+    """Append one entry to a conduct log (creating it on first use).
+
+    Note/prompt/response may each be empty, but not all three — a note-only
+    entry (e.g. a Commit with no AI turn) is valid and must be written.
+    """
+    try:
+        path = conduct_store.append_entry(slug, payload)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {"ok": True, "path": str(path)}
+
+
+@app.post("/api/conduct/open")
+def conduct_open(payload: dict):
+    """Open a conduct log in the OS default editor, or reveal it in its
+    containing folder. The path is validated to resolve inside
+    conduct_logs/ before anything is executed."""
+    try:
+        conduct_store.open_path(payload.get("path", ""), bool(payload.get("reveal", False)))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {"ok": True}
+
+
+# -----------------------------
+# About Uness
+# -----------------------------
+@app.get("/api/about")
+def about_content():
+    """about.md, re-read from disk on every call so a hand edit shows up
+    without a restart."""
+    return {"content": about_store.read_about()}
 
 
 # -----------------------------

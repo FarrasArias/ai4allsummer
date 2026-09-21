@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 /* ── Types ── */
-export type ModeTab = "chat" | "vibe" | "web" | "image" | "image_gen" | "settings" | "testing";
+export type ModeTab = "chat" | "vibe" | "web" | "image" | "image_gen" | "conduct" | "about" | "settings" | "testing";
 export type ThemeChoice = "light" | "dark" | "system";
 
 type ConvItem = {
@@ -88,6 +88,26 @@ function IconImage({ size = S }: { size?: number }) {
             <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
             <circle cx="5.5" cy="5.5" r="1.2" />
             <path d="M14 10.5l-3.5-3L7 11 5 9l-3 3" />
+        </svg>
+    );
+}
+
+function IconConduct({ size = S }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 16 16" {...svgProps}>
+            <circle cx="6" cy="4.7" r="2.7" />
+            <path d="M10.7 14v-1.3a2.7 2.7 0 00-2.7-2.7H4a2.7 2.7 0 00-2.7 2.7v1.3" />
+            <path d="M10.7 7.3l1.3 1.4 2.7-2.7" />
+        </svg>
+    );
+}
+
+function IconInfo({ size = S }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 16 16" {...svgProps}>
+            <circle cx="8" cy="8" r="6.5" />
+            <path d="M8 7.2v4" />
+            <circle cx="8" cy="4.8" r="0.15" fill="currentColor" stroke="currentColor" strokeWidth="1.4" />
         </svg>
     );
 }
@@ -185,6 +205,7 @@ function ModeIcon({ mode, size = S }: { mode: string; size?: number }) {
         case "web": return <IconWeb size={size} />;
         case "image":
         case "image_gen": return <IconImage size={size} />;
+        case "conduct": return <IconConduct size={size} />;
         default: return <IconChat size={size} />;
     }
 }
@@ -195,6 +216,8 @@ const MODE_LABELS: Record<string, string> = {
     vibe: "Code",
     web: "Web",
     image: "Image",
+    conduct: "Conduct",
+    about: "About Uness",
 };
 
 function computeGrade(last2AvgWh?: number | null, promptCount?: number): Grade {
@@ -298,7 +321,14 @@ export default function Sidebar({
                 <div className="sidebar-brand">
                     <div className="sidebar-brand-left">
                         <div className="sidebar-logo">U</div>
-                        <span className="sidebar-brand-name">Uness</span>
+                        <button
+                            type="button"
+                            className="sidebar-brand-name sidebar-brand-name-link"
+                            onClick={() => onTabChange("about")}
+                            title="About Uness"
+                        >
+                            Uness
+                        </button>
                     </div>
                     <button
                         className="sidebar-brand-theme"
@@ -319,7 +349,7 @@ export default function Sidebar({
 
                 {/* ── Mode Nav ── */}
                 <nav className="sidebar-nav">
-                    {(["chat", "vibe", "web", "image"] as const).map((mode) => (
+                    {(["chat", "vibe", "web", "image", "conduct"] as const).map((mode) => (
                         <button
                             key={mode}
                             className={`sidebar-nav-item ${activeTab === mode || (mode === "image" && activeTab === "image_gen") ? "active" : ""}`}
@@ -424,6 +454,15 @@ export default function Sidebar({
                     )}
                 </div>
 
+                {/* ── About Link ── */}
+                <button
+                    className="sidebar-settings"
+                    onClick={() => onTabChange("about")}
+                >
+                    <span className="sidebar-nav-icon"><IconInfo size={15} /></span>
+                    <span>About Uness</span>
+                </button>
+
                 {/* ── Settings Link ── */}
                 <button
                     className="sidebar-settings"
@@ -466,7 +505,7 @@ export default function Sidebar({
                                     data-grade={grade}
                                 />
                             </div>
-                            <div className="sidebar-energy-grade-label">
+                            <div className="sidebar-energy-grade-label" data-grade={grade}>
                                 <span>Energy grade: {grade}</span>
                                 <span>{grade === "A" ? "Excellent" : grade === "B" ? "Good" : grade === "C" ? "Moderate" : grade === "D" ? "High" : "Very high"}</span>
                             </div>

@@ -7,25 +7,38 @@ import VibeCodingPane from "./components/VibeCodingPane";
 import WebChatPane from "./components/WebChatPane";
 import ImageAnalysisPane from "./components/ImageAnalysisPane";
 import ImageGenPane from "./components/ImageGenPane";
+import ConductPane from "./components/ConductPane";
+import AboutPane from "./components/AboutPane";
 import TestRunnerPane from "./components/TestRunnerPane";
 import { TipProvider } from "./components/TipContext";
 import {
     streamPower,
     saveStudySession,
     resetChatSession,
+    resetAgent,
+    resetWeb,
     getModeDefaults,
     loadModel,
     listChats,
     getPinnedChats,
     togglePinnedChat,
+    appendConductLog,
     type ModeDefaults,
     type ModeKey,
+    type ConductPhase,
+    type InferenceMetrics,
 } from "./api";
 
 import StudyControls, { loadPersistedStudySettings } from "./components/StudyControls";
 import type { StudySettings, PromptMetric } from "./components/StudyControls";
 
-type Msg = { role: "user" | "bot"; text: string };
+type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
+
+function slugifyTitle(text: string, maxWords = 4): string {
+    const words = text.trim().split(/\s+/).slice(0, maxWords).join(" ");
+    const slug = words.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    return slug || "conduct-log";
+}
 
 export default function App() {
     /* ── Energy state ── */
@@ -38,6 +51,9 @@ export default function App() {
     /* ── Tab / nav ── */
     const [tab, setTab] = useState<ModeTab>("chat");
     const [chatKey, setChatKey] = useState(0);
+    const [vibeKey, setVibeKey] = useState(0);
+    const [webKey, setWebKey] = useState(0);
+    const [imageKey, setImageKey] = useState(0);
     const [currentModel, setCurrentModel] = useState<string | null>(null);
 
     /* ── Conversation list ── */
@@ -92,6 +108,11 @@ export default function App() {
     const [copyStatus, setCopyStatus] = useState<string | null>(null);
     const [studyCollapsed, setStudyCollapsed] = useState(true);
 
+    /* ── Conduct log ── */
+    // Held for the life of the session so every append after the first
+    // lands in the same file; the title is only asked for once.
+    const [logSlug, setLogSlug] = useState<string | null>(null);
+
     /* ── Theme ── */
     const [theme, setTheme] = useState<ThemeChoice>(() => {
         try {
@@ -113,6 +134,10 @@ export default function App() {
         promptWhHistory.length > 0
             ? promptWhHistory.reduce((sum, v) => sum + v, 0) / promptWhHistory.length
             : null;
+
+    const defaultLogTitle =
+        messages.find((m) => m.role === "user")?.text.trim().split(/\s+/).slice(0, 4).join(" ") ||
+        "Conduct log";
 
     /* ── Effects ── */
 
@@ -168,7 +193,18 @@ export default function App() {
 
     // Load conversation list
     useEffect(() => {
-        listChats().then((j) => setChats(j.chats ?? [])).catch(() => {});
+        listChats()
+            .then((j) => {
+                const real = (j.chats ?? []).filter((name) => name !== "_tmp");
+                // TODO(demo): remove these placeholder titles once real chat history is wired up.
+                const demoChats = [
+                    "Why does asking ChatGPT use so much electricity?",
+                    "Help debugging my Python for-loop",
+                    "Explain photosynthesis for my bio quiz",
+                ];
+                setChats([...demoChats, ...real]);
+            })
+            .catch(() => {});
         setPinnedChats(getPinnedChats());
     }, []);
 
@@ -237,6 +273,10 @@ export default function App() {
         setSessionTotalWh(null);
         setPromptWhHistory([]);
         lastPromptWhRef.current = null;
+
+        // A new conversation is a new conducting session — ask for a log
+        // title again next time, rather than folding it into the old file.
+        setLogSlug(null);
     }
 
     function handleChatSelect(name: string) {
@@ -271,18 +311,71 @@ export default function App() {
         URL.revokeObjectURL(url);
     }
 
+    async function handleAppendLog(args: { phase: ConductPhase; note: string; title?: string }): Promise<boolean> {
+        let lastBotIndex = -1;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === "bot") { lastBotIndex = i; break; }
+        }
+        const lastBot = lastBotIndex >= 0 ? messages[lastBotIndex] : undefined;
+        let precedingUser: Msg | undefined;
+        for (let i = lastBotIndex - 1; i >= 0; i--) {
+            if (messages[i].role === "user") { precedingUser = messages[i]; break; }
+        }
+
+        const slug = logSlug || slugifyTitle(args.title || defaultLogTitle);
+
+        try {
+            const res = await appendConductLog(slug, {
+                phase: args.phase,
+                note: args.note,
+                prompt: precedingUser?.text || "",
+                response: lastBot?.text || "",
+                model: activeModel || null,
+                mode: tab,
+                energy_wh: lastBot?.metrics?.energy_wh ?? null,
+                title: args.title,
+            });
+            if (res.ok && !logSlug) setLogSlug(slug);
+            return !!res.ok;
+        } catch {
+            return false;
+        }
+    }
+
     function handleClearChat() {
+        // Clear resets every conversational mode (Chat, Code, Web, Image),
+        // not just whichever tab is active — each pane keeps its own
+        // transcript, so a scoped clear used to look like it "didn't work"
+        // on the others.
         if (currentModel) {
             resetChatSession(currentModel).catch(() => {});
         }
+        if (vibeModel) {
+            resetAgent(vibeModel).catch(() => {});
+        }
+        if (webModel) {
+            resetWeb(webModel).catch(() => {});
+        }
+
         setMessages([{ role: "bot", text: "Hi! Ask me anything." }]);
         setActiveChatName("");
-        try { localStorage.removeItem("ai4all.chat.messages"); } catch {}
+        try {
+            localStorage.removeItem("ai4all.chat.messages");
+            localStorage.removeItem("ai4all.vibe.entries");
+            localStorage.removeItem("ai4all.web.messages");
+            localStorage.removeItem("ai4all.image.turns");
+            localStorage.removeItem("ai4all.image.dataUrl");
+            localStorage.removeItem("ai4all.image.name");
+        } catch {}
         setChatKey((k) => k + 1);
+        setVibeKey((k) => k + 1);
+        setWebKey((k) => k + 1);
+        setImageKey((k) => k + 1);
         setLatestPromptWh(null);
         setSessionTotalWh(null);
         setPromptWhHistory([]);
         lastPromptWhRef.current = null;
+        setLogSlug(null);
     }
 
     /* ── Conversation actions ── */
@@ -393,6 +486,9 @@ export default function App() {
                         onCopyResponse={handleCopyLastResponse}
                         onSaveResponse={handleSaveLastResponse}
                         copyStatus={copyStatus}
+                        onAppendLog={handleAppendLog}
+                        logTitleDefault={defaultLogTitle}
+                        showLogTitleField={!logSlug}
                     />
 
                     {/* Content area */}
@@ -415,25 +511,37 @@ export default function App() {
 
                     {tab === "vibe" && (
                         <div className="pane-scroll">
-                            <VibeCodingPane model={vibeModel} />
+                            <VibeCodingPane key={vibeKey} model={vibeModel} />
                         </div>
                     )}
 
                     {tab === "web" && (
                         <div className="chat-area">
-                            <WebChatPane model={webModel} />
+                            <WebChatPane key={webKey} model={webModel} />
                         </div>
                     )}
 
                     {tab === "image" && (
                         <div className="pane-scroll">
-                            <ImageAnalysisPane model={imageModel} />
+                            <ImageAnalysisPane key={imageKey} model={imageModel} />
                         </div>
                     )}
 
                     {tab === "image_gen" && (
                         <div className="pane-scroll">
                             <ImageGenPane model={imageGenModel} />
+                        </div>
+                    )}
+
+                    {tab === "conduct" && (
+                        <div className="pane-scroll">
+                            <ConductPane />
+                        </div>
+                    )}
+
+                    {tab === "about" && (
+                        <div className="pane-scroll">
+                            <AboutPane />
                         </div>
                     )}
 

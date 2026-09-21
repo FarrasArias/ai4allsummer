@@ -112,6 +112,14 @@ reports/
 # RAG embedding cache (rebuilt from uploads)
 rag_cache/
 
+# Conduct's user-owned logs live at the repo root (conduct_logs/), not
+# here — see the root .gitignore. conduct_defaults/ ships in the repo
+# and seeds that folder on first run.
+
+# About Uness: configs/about.md is a user-editable copy seeded from
+# configs_defaults/about.md (which IS tracked), same pattern as Conduct.
+configs/about.md
+
 __pychache__
 
 .vs

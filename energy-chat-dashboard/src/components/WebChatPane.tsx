@@ -12,7 +12,12 @@ type Props = {
 const WEB_GREETING: Msg = {
   role: "bot",
   text:
-    "This mode can use web tools. Ask a question and I'll search the web when it helps answer accurately. You can also attach documents (pdf, docx, txt, csv) to ask about them.",
+    "Ask a question and I'll search the web when it helps answer accurately.\n\n" +
+    "**Warning:** Everything else in Uness runs locally. The web tool partially does not. " +
+    "We use Ollama's web search service, which they state does not retain queries. " +
+    "Queries currently run through our Uness account, so they are not tied to you " +
+    "individually; however, Ollama does see your network address. All reasoning and " +
+    "generation still run on your machine — search results come back here and go no further.",
 };
 
 export default function WebChatPane({ model }: Props) {

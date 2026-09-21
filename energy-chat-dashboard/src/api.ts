@@ -588,3 +588,70 @@ export function runTests(
 export async function stopTests(): Promise<void> {
   await fetch(`${API_BASE}/api/test/stop`, { method: "POST" });
 }
+
+// ── About ────────────────────────────────────────────────────────────────────
+
+export async function getAboutContent(): Promise<{ content: string }> {
+  const res = await fetch(`${API_BASE}/api/about`);
+  return res.json();
+}
+
+// ── Conduct (log) ────────────────────────────────────────────────────────────
+
+export type ConductPhase = "frame" | "explore" | "refine" | "commit";
+
+export async function getConductContent(): Promise<{ reference: string; snippets: string }> {
+  const res = await fetch(`${API_BASE}/api/conduct/content`);
+  return res.json();
+}
+
+export type ConductLogSummary = {
+  slug: string;
+  title: string;
+  path: string;
+  updated_at: number;
+  entry_count: number;
+  phase_counts: Record<ConductPhase, number>;
+};
+
+export async function getConductLogs(): Promise<ConductLogSummary[]> {
+  const res = await fetch(`${API_BASE}/api/conduct/logs`);
+  const j = await res.json();
+  return j.logs ?? [];
+}
+
+export async function openConductPath(
+  path: string,
+  reveal = false,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${API_BASE}/api/conduct/open`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, reveal }),
+  });
+  return res.json();
+}
+
+export async function appendConductLog(
+  slug: string,
+  entry: {
+    phase: ConductPhase;
+    note: string;
+    prompt: string;
+    response: string;
+    model?: string | null;
+    mode?: string | null;
+    energy_wh?: number | null;
+    title?: string;
+  },
+): Promise<{ ok: boolean; path?: string; error?: string }> {
+  const res = await fetch(
+    `${API_BASE}/api/conduct/log/${encodeURIComponent(slug)}/append`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    },
+  );
+  return res.json();
+}

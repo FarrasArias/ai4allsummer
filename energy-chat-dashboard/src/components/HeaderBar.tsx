@@ -1,4 +1,7 @@
+import { useState } from "react";
 import type { ModeTab } from "./Sidebar";
+import type { ConductPhase } from "../api";
+import LogPopover from "./LogPopover";
 
 type Props = {
     tab: ModeTab;
@@ -14,6 +17,11 @@ type Props = {
     onCopyResponse: () => void;
     onSaveResponse: () => void;
     copyStatus?: string | null;
+
+    /* Conduct log */
+    onAppendLog?: (args: { phase: ConductPhase; note: string; title?: string }) => Promise<boolean>;
+    logTitleDefault?: string;
+    showLogTitleField?: boolean;
 };
 
 /* ── Inline SVG icons (monochrome, currentColor) ── */
@@ -55,6 +63,24 @@ function IconTrash({ size = 16 }: { size?: number }) {
 function IconClip({ size = 16 }: { size?: number }) {
     return <svg width={size} height={size} viewBox="0 0 16 16" {...svgProps}><path d="M7.5 4v7a2.5 2.5 0 005 0V3.5a4 4 0 00-8 0V11a5.5 5.5 0 0011 0V4" /></svg>;
 }
+function IconConduct({ size = 16 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 16 16" {...svgProps}>
+            <circle cx="6" cy="4.7" r="2.7" />
+            <path d="M10.7 14v-1.3a2.7 2.7 0 00-2.7-2.7H4a2.7 2.7 0 00-2.7 2.7v1.3" />
+            <path d="M10.7 7.3l1.3 1.4 2.7-2.7" />
+        </svg>
+    );
+}
+function IconInfo({ size = 16 }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 16 16" {...svgProps}>
+            <circle cx="8" cy="8" r="6.5" />
+            <path d="M8 7.2v4" />
+            <circle cx="8" cy="4.8" r="0.15" fill="currentColor" stroke="currentColor" strokeWidth="1.4" />
+        </svg>
+    );
+}
 
 function TabIcon({ tab }: { tab: ModeTab }) {
     switch (tab) {
@@ -63,6 +89,8 @@ function TabIcon({ tab }: { tab: ModeTab }) {
         case "web": return <IconWeb />;
         case "image":
         case "image_gen": return <IconImage />;
+        case "conduct": return <IconConduct />;
+        case "about": return <IconInfo />;
         case "settings": return <IconSettings />;
         case "testing": return <IconTest />;
         default: return <IconChat />;
@@ -75,6 +103,8 @@ const TAB_LABELS: Record<string, string> = {
     web: "Web",
     image: "Image Analysis",
     image_gen: "Image Generation",
+    conduct: "Conduct",
+    about: "About Uness",
     settings: "Settings",
     testing: "Testing",
 };
@@ -101,7 +131,11 @@ export default function HeaderBar({
     onCopyResponse,
     onSaveResponse,
     copyStatus,
+    onAppendLog,
+    logTitleDefault,
+    showLogTitleField,
 }: Props) {
+    const [logOpen, setLogOpen] = useState(false);
     const totalWh = typeof sessionTotalWh === "number" ? sessionTotalWh : 0;
     const grade = computeGrade(last2AvgWh);
     const displayTitle = chatName || TAB_LABELS[tab] || "New conversation";
@@ -153,18 +187,29 @@ export default function HeaderBar({
                     </button>
                     <button
                         className="header-action-btn"
-                        onClick={onSaveResponse}
-                        title="Save as .md"
-                    >
-                        <IconFile size={14} /> .md
-                    </button>
-                    <button
-                        className="header-action-btn"
                         onClick={onCopyResponse}
                         title="Copy last response"
                     >
                         <IconCopy size={14} /> {copyStatus || "Copy"}
                     </button>
+                    {onAppendLog && (
+                        <div className="log-anchor">
+                            <button
+                                className="header-action-btn"
+                                onClick={() => setLogOpen((v) => !v)}
+                                title="Add this exchange to your conducting log"
+                            >
+                                → Log
+                            </button>
+                            <LogPopover
+                                open={logOpen}
+                                onClose={() => setLogOpen(false)}
+                                showTitleField={!!showLogTitleField}
+                                defaultTitle={logTitleDefault || ""}
+                                onAppend={onAppendLog}
+                            />
+                        </div>
+                    )}
                     <span className="header-divider" />
                     <button
                         className="header-action-btn danger"

@@ -127,6 +127,11 @@ chats/
 images/
 reports/
 
+# Conduct logs: user-owned, findable at the repo root rather than nested
+# in backend/. reference.md / snippets.md are user-editable copies seeded
+# from backend/conduct_defaults/ (which IS tracked).
+/conduct_logs/
+
 # ----------------
 # Environment & Secrets
 # ----------------
