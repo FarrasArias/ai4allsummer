@@ -755,6 +755,40 @@ def conduct_open(payload: dict):
     return {"ok": True}
 
 
+@app.post("/api/conduct/log/{slug}/index")
+def conduct_index(slug: str, payload: dict | None = None):
+    """Register a conduct log with a chat model's knowledge layer, so later
+    questions can retrieve it as a source document.
+
+    Deliberately a button press rather than something that happens on every
+    append: indexing embeds the whole file, and the log only grows. The
+    engine re-indexes rather than adds, so pressing this repeatedly replaces
+    the previous copy instead of stacking duplicates.
+    """
+    payload = payload or {}
+    try:
+        path = conduct_store.log_path(slug)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    model = (
+        payload.get("model")
+        or _latest_chat_model
+        or get_model_config().get("chat", {}).get("default", CHAT_DEFAULT_MODEL)
+    )
+    try:
+        info = _get_chat_engine(model).reindex_document(str(path))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    return {
+        "ok": True,
+        "model": model,
+        "chunks": info.get("rag_chunks"),
+        "skipped": bool(info.get("skipped")),
+    }
+
+
 # -----------------------------
 # About Uness
 # -----------------------------

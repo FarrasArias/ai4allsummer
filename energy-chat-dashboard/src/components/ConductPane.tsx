@@ -5,6 +5,7 @@ import {
     getConductContent,
     getConductLogs,
     openConductPath,
+    indexConductLog,
     type ConductLogSummary,
     type ConductPhase,
 } from "../api";
@@ -79,10 +80,12 @@ function parseSnippets(md: string): Snippet[] {
     return snippets;
 }
 
-function LogCard({ log, onOpen, onReveal, status }: {
+function LogCard({ log, onOpen, onReveal, onIndex, indexing, status }: {
     log: ConductLogSummary;
     onOpen: () => void;
     onReveal: () => void;
+    onIndex: () => void;
+    indexing: boolean;
     status: string | null;
 }) {
     const filename = log.path.split("/").pop() || log.path;
@@ -102,6 +105,15 @@ function LogCard({ log, onOpen, onReveal, status }: {
                 <button type="button" className="conduct-log-action" onClick={onReveal}>
                     Reveal in folder
                 </button>
+                <button
+                    type="button"
+                    className="conduct-log-action"
+                    onClick={onIndex}
+                    disabled={indexing}
+                    title="Embed this log so later questions can retrieve it as a source document"
+                >
+                    {indexing ? "Adding…" : "Add to knowledge layer"}
+                </button>
                 {status && <span className="conduct-log-status">{status}</span>}
             </div>
         </div>
@@ -118,6 +130,7 @@ export default function ConductPane() {
     const [logs, setLogs] = useState<ConductLogSummary[]>([]);
     const [logsLoaded, setLogsLoaded] = useState(false);
     const [logStatus, setLogStatus] = useState<{ slug: string; text: string } | null>(null);
+    const [indexingSlug, setIndexingSlug] = useState<string | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -157,6 +170,21 @@ export default function ConductPane() {
             setLogStatus({ slug: log.slug, text: reveal ? "Couldn't reveal" : "Couldn't open" });
             setTimeout(() => setLogStatus((s) => (s?.slug === log.slug ? null : s)), 2500);
         }
+    }
+
+    async function handleIndexLog(log: ConductLogSummary) {
+        setIndexingSlug(log.slug);
+        const res = await indexConductLog(log.slug).catch(() => ({ error: "failed" as const }));
+        setIndexingSlug(null);
+
+        let text: string;
+        if ("error" in res && res.error) text = "Couldn't add";
+        else if (res.skipped) text = "Already in context";
+        else if (typeof res.chunks === "number") text = `Added · ${res.chunks} sections`;
+        else text = "Added";
+
+        setLogStatus({ slug: log.slug, text });
+        setTimeout(() => setLogStatus((s) => (s?.slug === log.slug ? null : s)), 3000);
     }
 
     return (
@@ -230,6 +258,8 @@ export default function ConductPane() {
                                     log={log}
                                     onOpen={() => handleOpenLog(log, false)}
                                     onReveal={() => handleOpenLog(log, true)}
+                                    onIndex={() => handleIndexLog(log)}
+                                    indexing={indexingSlug === log.slug}
                                     status={logStatus?.slug === log.slug ? logStatus.text : null}
                                 />
                             ))}

@@ -217,6 +217,35 @@ class RagStore:
         logger.info("✓ Indexed %s: %d chunks", name, len(new_chunks))
         return {"chunks": len(new_chunks)}
 
+    def remove_document(self, name: str) -> int:
+        """Drop every chunk belonging to `name`. Returns how many were removed.
+
+        add_document() appends unconditionally, so re-indexing a file that is
+        still in the store would leave several copies of it in retrieval.
+        Anything re-indexing a file whose contents change over time must call
+        this first.
+        """
+        keep = [i for i, src in enumerate(self._sources) if src != name]
+        removed = len(self._sources) - len(keep)
+        if removed == 0:
+            return 0
+
+        if not keep:
+            # Nothing left. Go through clear() so the on-disk cache goes too:
+            # _save_to_disk() no-ops while _matrix is None and would otherwise
+            # leave a stale matrix.npy/meta.json behind.
+            self.clear()
+            logger.info("✓ Removed %s: %d chunks (store now empty)", name, removed)
+            return removed
+
+        self._chunks = [self._chunks[i] for i in keep]
+        self._sources = [self._sources[i] for i in keep]
+        self._pages = [self._pages[i] for i in keep]
+        self._matrix = self._matrix[keep] if self._matrix is not None else None
+        self._save_to_disk()
+        logger.info("✓ Removed %s: %d chunks", name, removed)
+        return removed
+
     # ── retrieval ──
     def search(self, query: str, k: int = TOP_K) -> List[dict]:
         """Return top-k chunks as [{source, page, text, score}], best first."""

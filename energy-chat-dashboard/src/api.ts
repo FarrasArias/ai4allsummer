@@ -652,6 +652,18 @@ export async function getConductLogs(): Promise<ConductLogSummary[]> {
   return j.logs ?? [];
 }
 
+export async function indexConductLog(
+  slug: string,
+  model?: string,
+): Promise<{ ok?: boolean; error?: string; chunks?: number | null; skipped?: boolean; model?: string }> {
+  const res = await fetch(`${API_BASE}/api/conduct/log/${encodeURIComponent(slug)}/index`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(model ? { model } : {}),
+  });
+  return res.json();
+}
+
 export async function openConductPath(
   path: string,
   reveal = false,

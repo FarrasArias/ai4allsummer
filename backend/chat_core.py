@@ -174,6 +174,28 @@ class OllamaChat:
             logger.error(f"Failed to load {file_path}: {e}")
             raise
 
+    def reindex_document(self, file_path: str) -> Dict[str, object]:
+        """Add a document, replacing any copy of it already in the index.
+
+        add_document() skips a filename it is already holding, and the RAG
+        store appends unconditionally — so a file whose contents grow over
+        time (a conduct log) needs its previous chunks dropped first, or
+        retrieval ends up serving several stale copies of it.
+        """
+        name = Path(file_path).name
+        removed = self.rag.remove_document(name)
+
+        if name in self.loaded_files:
+            if not removed and not self.rag.is_available():
+                # Without RAG, add_document() concatenated this file's text
+                # into document_context, which can't be surgically undone.
+                # Re-adding would duplicate it, so decline instead.
+                logger.info("Skipping re-index of %s: no RAG, text is inlined", name)
+                return {"filename": name, "skipped": True, "reason": "no_rag_fallback"}
+            self.loaded_files.remove(name)
+
+        return self.add_document(file_path)
+
     def clear_documents(self) -> None:
         """
         Clear all loaded documents from context.

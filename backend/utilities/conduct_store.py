@@ -234,6 +234,18 @@ def append_entry(slug: str, payload: dict) -> Path:
     return md_path
 
 
+def log_path(slug: str) -> Path:
+    """Absolute path to a log's markdown file. Raises ValueError if the slug
+    is malformed or no such log exists — callers hand this straight to the
+    knowledge layer, so it must never resolve outside CONDUCT_DIR."""
+    if not _is_safe_slug(slug):
+        raise ValueError("invalid slug")
+    path = _md_path(slug)
+    if not path.exists():
+        raise ValueError("no such log")
+    return path
+
+
 def list_logs() -> list:
     """Summaries of every log, newest-updated first."""
     ensure_initialized()
