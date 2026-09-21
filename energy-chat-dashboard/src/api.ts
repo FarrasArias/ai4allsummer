@@ -149,7 +149,14 @@ export async function powerSummary() {
   return r.json();
 }
 
-export async function listChats() {
+export type ChatInfo = {
+  name: string;
+  mode?: string;
+  created_at?: number;
+  updated_at?: number;
+};
+
+export async function listChats(): Promise<{ chats: ChatInfo[] }> {
   const r = await fetch(`${API_BASE}/api/chats`);
   return r.json();
 }
@@ -192,16 +199,30 @@ export function isChatPinned(chatName: string): boolean {
   return getPinnedChats().includes(chatName);
 }
 
-export async function saveChat(name: string, history: any) {
+export async function saveChat(name: string, history: any, meta?: { mode?: string }) {
   const body = new FormData();
   body.append("name", name);
   body.append("history_json", JSON.stringify(history));
+  if (meta) body.append("meta_json", JSON.stringify(meta));
   const r = await fetch(`${API_BASE}/api/chats/save`, { method: "POST", body });
   return r.json();
 }
 
 export async function loadChat(name: string) {
   const r = await fetch(`${API_BASE}/api/chats/${encodeURIComponent(name)}`);
+  return r.json();
+}
+
+export async function deleteChat(name: string) {
+  const r = await fetch(`${API_BASE}/api/chats/${encodeURIComponent(name)}`, { method: "DELETE" });
+  return r.json();
+}
+
+export async function renameChat(oldName: string, newName: string) {
+  const body = new FormData();
+  body.append("old_name", oldName);
+  body.append("new_name", newName);
+  const r = await fetch(`${API_BASE}/api/chats/rename`, { method: "POST", body });
   return r.json();
 }
 

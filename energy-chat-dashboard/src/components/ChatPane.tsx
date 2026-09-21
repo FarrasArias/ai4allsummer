@@ -16,6 +16,7 @@ type Props = {
     onUserPrompt?: (m: { ts: number; text: string; words: number; chars: number }) => void;
     onHistoryChange?: (history: Msg[]) => void;
     onModelChange?: (model: string) => void;
+    onFileCountChange?: (count: number) => void;
 };
 
 type ThinkingMode = "fast" | "deep";
@@ -32,6 +33,7 @@ export default function ChatPane({
     onUserPrompt,
     onHistoryChange,
     onModelChange,
+    onFileCountChange,
 }: Props) {
     const [messages, setMessages] = useState<Msg[]>(() => {
         try {
@@ -60,6 +62,9 @@ export default function ChatPane({
 
     // Keep App in sync
     useEffect(() => { onHistoryChange?.(messages); }, [messages, onHistoryChange]);
+
+    // Report file count changes
+    useEffect(() => { onFileCountChange?.(files.length); }, [files.length, onFileCountChange]);
 
     // Auto-persist chat
     useEffect(() => {

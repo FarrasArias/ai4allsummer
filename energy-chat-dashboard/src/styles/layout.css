@@ -224,6 +224,9 @@ body {
     background: var(--hover-bg);
     color: var(--color-text);
 }
+.sidebar-history-actions button.active {
+    color: var(--color-accent);
+}
 
 /* ── Search ── */
 .sidebar-search {
@@ -821,6 +824,16 @@ body {
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+}
+
+.chat-loading {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--color-text-dim);
+    font-size: var(--font-size);
 }
 
 /* ── Chat History ── */

@@ -20,9 +20,16 @@ import {
     getModeDefaults,
     loadModel,
     listChats,
+    loadChat,
+    saveChat,
+    searchChats,
+    deleteChat,
+    renameChat,
     getPinnedChats,
+    setPinnedChats as savePinnedChats,
     togglePinnedChat,
     appendConductLog,
+    type ChatInfo,
     type ModeDefaults,
     type ModeKey,
     type ConductPhase,
@@ -38,6 +45,17 @@ function slugifyTitle(text: string, maxWords = 4): string {
     const words = text.trim().split(/\s+/).slice(0, maxWords).join(" ");
     const slug = words.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
     return slug || "conduct-log";
+}
+
+function generateChatName(messages: Msg[]): string {
+    const firstUser = messages.find(m => m.role === "user");
+    if (!firstUser) return `chat-${Date.now()}`;
+    const base = firstUser.text.trim()
+        .slice(0, 40)
+        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return base || `chat-${Date.now()}`;
 }
 
 export default function App() {
@@ -57,9 +75,11 @@ export default function App() {
     const [currentModel, setCurrentModel] = useState<string | null>(null);
 
     /* ── Conversation list ── */
-    const [chats, setChats] = useState<string[]>([]);
+    const [chats, setChats] = useState<ChatInfo[]>([]);
     const [pinnedChats, setPinnedChats] = useState<string[]>([]);
     const [activeChatName, setActiveChatName] = useState("");
+    const [fileCount, setFileCount] = useState(0);
+    const [chatLoading, setChatLoading] = useState(false);
 
     /* ── Model management ── */
     const [autoLoadModel, setAutoLoadModel] = useState<boolean>(() => {
@@ -105,6 +125,8 @@ export default function App() {
     });
 
     const [messages, setMessages] = useState<Msg[]>([]);
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const activeChatNameRef = useRef("");
     const [copyStatus, setCopyStatus] = useState<string | null>(null);
     const [studyCollapsed, setStudyCollapsed] = useState(true);
 
@@ -195,14 +217,7 @@ export default function App() {
     useEffect(() => {
         listChats()
             .then((j) => {
-                const real = (j.chats ?? []).filter((name) => name !== "_tmp");
-                // TODO(demo): remove these placeholder titles once real chat history is wired up.
-                const demoChats = [
-                    "Why does asking ChatGPT use so much electricity?",
-                    "Help debugging my Python for-loop",
-                    "Explain photosynthesis for my bio quiz",
-                ];
-                setChats([...demoChats, ...real]);
+                setChats((j.chats ?? []).filter((c) => c.name !== "_tmp"));
             })
             .catch(() => {});
         setPinnedChats(getPinnedChats());
@@ -233,6 +248,28 @@ export default function App() {
         });
         return stop;
     }, []);
+
+    // Keep activeChatNameRef in sync
+    useEffect(() => { activeChatNameRef.current = activeChatName; }, [activeChatName]);
+
+    // Auto-save conversation to backend (debounced 2s after last message change)
+    useEffect(() => {
+        if (!messages.some(m => m.role === "user")) return;
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+            const name = activeChatNameRef.current || generateChatName(messages);
+            if (!activeChatNameRef.current) {
+                setActiveChatName(name);
+                activeChatNameRef.current = name;
+            }
+            saveChat(name, messages, { mode: "chat" }).then(() => {
+                listChats()
+                    .then(j => setChats((j.chats ?? []).filter((c) => c.name !== "_tmp")))
+                    .catch(() => {});
+            }).catch(console.error);
+        }, 2000);
+        return () => clearTimeout(saveTimerRef.current);
+    }, [messages]);
 
     // Auto-preload model on tab switch (non-chat)
     useEffect(() => {
@@ -279,10 +316,21 @@ export default function App() {
         setLogSlug(null);
     }
 
-    function handleChatSelect(name: string) {
+    async function handleChatSelect(name: string) {
         setActiveChatName(name);
-        // Chat loading is handled by ChatPane internally when we switch
         setTab("chat");
+        setChatLoading(true);
+        try {
+            const history = await loadChat(name);
+            if (Array.isArray(history) && history.length > 0) {
+                try { localStorage.setItem("ai4all.chat.messages", JSON.stringify(history)); } catch {}
+                setChatKey(k => k + 1);
+            }
+        } catch (err) {
+            console.error("Failed to load chat:", err);
+        } finally {
+            setChatLoading(false);
+        }
     }
 
     function handleCopyLastResponse() {
@@ -385,17 +433,42 @@ export default function App() {
     }
 
     function handleDeleteChat(name: string) {
-        setChats((prev) => prev.filter((c) => c !== name));
+        setChats((prev) => prev.filter((c) => c.name !== name));
+        // Clean up pinned list
+        const pinned = getPinnedChats();
+        if (pinned.includes(name)) {
+            savePinnedChats(pinned.filter(p => p !== name));
+            setPinnedChats(pinned.filter(p => p !== name));
+        }
         if (activeChatName === name) {
             setActiveChatName("");
             handleNewChat();
         }
+        deleteChat(name).catch(console.error);
     }
 
-    function handleRenameChat(_name: string, _newName: string) {
-        // Rename is client-side only; the backend has no rename endpoint
-        setChats((prev) => prev.map((c) => c === _name ? _newName : c));
-        if (activeChatName === _name) setActiveChatName(_newName);
+    function handleRenameChat(oldName: string, newName: string) {
+        setChats((prev) => prev.map((c) => c.name === oldName ? { ...c, name: newName } : c));
+        if (activeChatName === oldName) setActiveChatName(newName);
+        // Update pinned list if the renamed chat was pinned
+        const pinned = getPinnedChats();
+        const idx = pinned.indexOf(oldName);
+        if (idx >= 0) {
+            pinned[idx] = newName;
+            savePinnedChats([...pinned]);
+            setPinnedChats([...pinned]);
+        }
+        renameChat(oldName, newName).catch(console.error);
+    }
+
+    /* ── Search ── */
+    async function handleSearch(query: string): Promise<string[]> {
+        try {
+            const { results } = await searchChats(query);
+            return results.map(r => r.chatName);
+        } catch {
+            return [];
+        }
     }
 
     /* ── Study handlers ── */
@@ -468,6 +541,7 @@ export default function App() {
                     last2AvgWh={last2AvgWh}
                     theme={theme}
                     onThemeChange={setTheme}
+                    onSearch={handleSearch}
                 />
 
                 {/* ── Main Content ── */}
@@ -479,7 +553,7 @@ export default function App() {
                         activeModel={activeModel || null}
                         promptCount={userMessages.length}
                         responseCount={botMessages.length}
-                        fileCount={0}
+                        fileCount={fileCount}
                         sessionTotalWh={sessionTotalWh}
                         last2AvgWh={last2AvgWh}
                         onClearChat={handleClearChat}
@@ -492,7 +566,13 @@ export default function App() {
                     />
 
                     {/* Content area */}
-                    {tab === "chat" && (
+                    {tab === "chat" && chatLoading && (
+                        <div className="chat-loading">
+                            <span className="model-loading-spinner" style={{ fontSize: 20 }}>⟳</span>
+                            <span>Loading conversation…</span>
+                        </div>
+                    )}
+                    {tab === "chat" && !chatLoading && (
                         <div className="chat-area">
                             <ChatPane
                                 key={chatKey}
@@ -505,6 +585,7 @@ export default function App() {
                                 onUserPrompt={(m) => setPromptMetrics((arr) => [...arr, m])}
                                 onHistoryChange={(history) => setMessages(history)}
                                 onModelChange={(model) => setCurrentModel(model)}
+                                onFileCountChange={setFileCount}
                             />
                         </div>
                     )}
