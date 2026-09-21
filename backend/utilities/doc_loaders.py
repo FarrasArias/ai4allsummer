@@ -103,7 +103,8 @@ def extract_document(file_path: str) -> List[Segment]:
     """
     Extract a document into segments by file type.
 
-    Supports .pdf (per-page segments), .docx/.doc, .txt, .csv (single segment).
+    Supports .pdf (per-page segments), .docx/.doc, .txt, .md/.markdown, .csv
+    (single segment).
     Raises ValueError for unsupported types.
     """
     path = Path(file_path)
@@ -113,7 +114,9 @@ def extract_document(file_path: str) -> List[Segment]:
         return load_pdf_segments(str(path))
     if suffix in (".docx", ".doc"):
         return [(None, load_docx_text(str(path)))]
-    if suffix == ".txt":
+    # Markdown is plain text — same loader. Conduct logs are .md, and the
+    # knowledge layer indexes them like any other source document.
+    if suffix in (".txt", ".md", ".markdown"):
         return [(None, load_txt_text(str(path)))]
     if suffix == ".csv":
         return [(None, load_csv_text(str(path)))]
