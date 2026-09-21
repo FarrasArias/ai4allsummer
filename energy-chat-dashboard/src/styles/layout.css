@@ -1262,6 +1262,20 @@ body {
     font-weight: 600;
 }
 
+/* What's already in the log you're appending to. Counts only — the app
+   never comments on whether a phase is under-used. */
+.log-popover-shape {
+    margin: 0 0 4px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--color-text-dim);
+}
+
+.log-popover-shape strong {
+    color: var(--color-text);
+    font-weight: 600;
+}
+
 .log-popover-phases {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1523,6 +1537,44 @@ body {
 
 /* Same slot, but for "Added"/"Removed" — danger red would misread those. */
 .conduct-log-status.ok {
+    color: var(--color-text-dim);
+}
+
+/* Read-only log reader. CONDUCT_STAGE1.md ruled this out on the assumption
+   that the file was open in the user's own editor; when it isn't, an
+   appended log is never seen again. Read-only, so there is still exactly
+   one writer: the user's editor. */
+.conduct-log-reader {
+    margin-top: 12px;
+    border-top: 1px solid var(--color-border);
+    padding-top: 10px;
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.conduct-log-reader-note {
+    margin: 0 0 10px;
+    font-size: 11px;
+    color: var(--color-text-dim);
+}
+
+.conduct-log-reader .conduct-markdown {
+    font-size: 12px;
+}
+
+.conduct-log-reader .conduct-markdown h1 {
+    font-size: 15px;
+}
+
+.conduct-log-reader .conduct-markdown h2 {
+    font-size: 13px;
+    margin-top: 14px;
+}
+
+.conduct-log-reader .conduct-markdown blockquote {
+    border-left: 2px solid var(--color-border);
+    margin: 6px 0;
+    padding-left: 10px;
     color: var(--color-text-dim);
 }
 

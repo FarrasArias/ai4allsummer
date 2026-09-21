@@ -17,11 +17,13 @@ type Props = {
     open: boolean;
     onClose: () => void;
     showTitleField: boolean;
+    /** The log this session is appending to, once one exists. */
+    activeSlug?: string | null;
     defaultTitle: string;
     onAppend: (args: { phase: ConductPhase; note: string; title?: string }) => Promise<boolean>;
 };
 
-export default function LogPopover({ open, onClose, showTitleField, defaultTitle, onAppend }: Props) {
+export default function LogPopover({ open, onClose, showTitleField, activeSlug, defaultTitle, onAppend }: Props) {
     const [phase, setPhase] = useState<ConductPhase | null>(null);
     const [note, setNote] = useState("");
     const [title, setTitle] = useState(defaultTitle);
@@ -34,6 +36,12 @@ export default function LogPopover({ open, onClose, showTitleField, defaultTitle
     // the only moment a new slug can collide with a log already on disk.
     const collision = showTitleField
         ? existingLogs.find((l) => l.slug === slugifyConductTitle(title)) ?? null
+        : null;
+
+    // On later appends the title is already settled, so show what's in that
+    // log instead — otherwise the file you're writing to is never seen.
+    const activeLog = !showTitleField && activeSlug
+        ? existingLogs.find((l) => l.slug === activeSlug) ?? null
         : null;
 
     // Reset the compose state each time the popover opens; deliberately not
@@ -51,13 +59,13 @@ export default function LogPopover({ open, onClose, showTitleField, defaultTitle
     }, [open]);
 
     useEffect(() => {
-        if (!open || !showTitleField) return;
+        if (!open) return;
         let cancelled = false;
         getConductLogs()
             .then((logs) => { if (!cancelled) setExistingLogs(logs); })
             .catch(() => { if (!cancelled) setExistingLogs([]); });
         return () => { cancelled = true; };
-    }, [open, showTitleField]);
+    }, [open]);
 
     useEffect(() => {
         if (!open) return;
@@ -114,6 +122,14 @@ export default function LogPopover({ open, onClose, showTitleField, defaultTitle
                         </p>
                     )}
                 </div>
+            )}
+
+            {activeLog && (
+                <p className="log-popover-shape">
+                    Adding to <strong>{activeLog.slug}</strong> — {activeLog.entry_count}{" "}
+                    {activeLog.entry_count === 1 ? "entry" : "entries"}
+                    {PHASES.map((p) => `, ${p.label} ${activeLog.phase_counts?.[p.key] ?? 0}`).join("")}
+                </p>
             )}
 
             <div className="log-popover-phases">

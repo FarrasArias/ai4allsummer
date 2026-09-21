@@ -8,6 +8,7 @@ import {
     indexConductLog,
     unindexConductLog,
     getRagDocuments,
+    getConductLogContent,
     type ConductLogSummary,
     type ConductPhase,
 } from "../api";
@@ -82,7 +83,8 @@ function parseSnippets(md: string): Snippet[] {
     return snippets;
 }
 
-function LogCard({ log, onOpen, onReveal, onIndex, onUnindex, busy, indexed, status }: {
+function LogCard({ log, onOpen, onReveal, onIndex, onUnindex, busy, indexed, status,
+                  expanded, onToggleExpand, content }: {
     log: ConductLogSummary;
     onOpen: () => void;
     onReveal: () => void;
@@ -92,6 +94,9 @@ function LogCard({ log, onOpen, onReveal, onIndex, onUnindex, busy, indexed, sta
     /** Indexed for the *current* chat model — indexing is per mode+model. */
     indexed: boolean;
     status: { text: string; tone: "ok" | "error" } | null;
+    expanded: boolean;
+    onToggleExpand: () => void;
+    content: string | null;
 }) {
     const filename = log.path.split("/").pop() || log.path;
     return (
@@ -104,6 +109,14 @@ function LogCard({ log, onOpen, onReveal, onIndex, onUnindex, busy, indexed, sta
                 {PHASE_LABELS.map((p) => ` · ${p.label} ${log.phase_counts[p.key] ?? 0}`).join("")}
             </div>
             <div className="conduct-log-actions">
+                <button
+                    type="button"
+                    className="conduct-log-action"
+                    onClick={onToggleExpand}
+                    aria-expanded={expanded}
+                >
+                    {expanded ? "Hide" : "View"}
+                </button>
                 <button type="button" className="conduct-log-action" onClick={onOpen}>
                     Open in editor
                 </button>
@@ -134,6 +147,21 @@ function LogCard({ log, onOpen, onReveal, onIndex, onUnindex, busy, indexed, sta
                 </button>
                 {status && <span className={`conduct-log-status ${status.tone}`}>{status.text}</span>}
             </div>
+
+            {expanded && (
+                <div className="conduct-log-reader">
+                    <p className="conduct-log-reader-note">
+                        Read-only — use <strong>Open in editor</strong> to change it.
+                    </p>
+                    {content === null ? (
+                        <p className="conduct-empty-note">Loading…</p>
+                    ) : (
+                        <div className="conduct-markdown">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -151,6 +179,9 @@ export default function ConductPane({ chatModel }: { chatModel?: string | null }
     const [busy, setBusy] = useState<{ slug: string; kind: "index" | "unindex" } | null>(null);
     /** Filenames currently in the RAG cache for chat + chatModel. */
     const [indexedDocs, setIndexedDocs] = useState<string[]>([]);
+    const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
+    /** Cached per slug; null while a fetch is in flight. */
+    const [logContent, setLogContent] = useState<Record<string, string | null>>({});
 
     useEffect(() => {
         let cancelled = false;
@@ -184,6 +215,23 @@ export default function ConductPane({ chatModel }: { chatModel?: string | null }
     }, [chatModel]);
 
     useEffect(() => { void refreshIndexed(); }, [refreshIndexed]);
+
+    // One log open at a time — re-read on every open so an edit made in the
+    // user's editor shows up without a reload.
+    function handleToggleExpand(log: ConductLogSummary) {
+        if (expandedSlug === log.slug) { setExpandedSlug(null); return; }
+        setExpandedSlug(log.slug);
+        setLogContent((m) => ({ ...m, [log.slug]: null }));
+        getConductLogContent(log.slug)
+            .then((r) => setLogContent((m) => ({
+                ...m,
+                [log.slug]: r.content ?? "*Couldn't read this log.*",
+            })))
+            .catch(() => setLogContent((m) => ({
+                ...m,
+                [log.slug]: "*Couldn't read this log.*",
+            })));
+    }
 
     const snippets = parseSnippets(snippetsMd);
 
@@ -310,6 +358,9 @@ export default function ConductPane({ chatModel }: { chatModel?: string | null }
                                     onUnindex={() => handleUnindexLog(log)}
                                     busy={busy?.slug === log.slug ? busy.kind : null}
                                     indexed={indexedDocs.includes(`${log.slug}.md`)}
+                                    expanded={expandedSlug === log.slug}
+                                    onToggleExpand={() => handleToggleExpand(log)}
+                                    content={expandedSlug === log.slug ? logContent[log.slug] ?? null : null}
                                     status={logStatus?.slug === log.slug ? { text: logStatus.text, tone: logStatus.tone } : null}
                                 />
                             ))}

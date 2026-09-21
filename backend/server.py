@@ -729,6 +729,16 @@ def conduct_logs():
     return {"logs": conduct_store.list_logs()}
 
 
+@app.get("/api/conduct/log/{slug}")
+def conduct_log_content(slug: str):
+    """A log's raw markdown, for the read-only view on the Conduct page.
+    Display only — the app never writes through this."""
+    try:
+        return {"content": conduct_store.read_log(slug)}
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
 @app.post("/api/conduct/log/{slug}/append")
 def conduct_append(slug: str, payload: dict):
     """Append one entry to a conduct log (creating it on first use).

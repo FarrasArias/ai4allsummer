@@ -246,6 +246,18 @@ def log_path(slug: str) -> Path:
     return path
 
 
+def read_log(slug: str) -> str:
+    """A log's markdown, for the read-only view on the Conduct page.
+
+    CONDUCT_STAGE1.md deliberately had no way to read a log back: the file
+    was to be read in the user's own editor. That assumed the editor was
+    open alongside the app — when it isn't, a log you append to is never
+    seen again. This reads for display only; the app still only ever
+    appends, and never rewrites what is there.
+    """
+    return log_path(slug).read_text(encoding="utf-8")
+
+
 def list_logs() -> list:
     """Summaries of every log, newest-updated first."""
     ensure_initialized()

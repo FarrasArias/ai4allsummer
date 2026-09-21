@@ -572,6 +572,7 @@ export default function App() {
                         onAppendLog={showConductTools ? handleAppendLog : undefined}
                         logTitleDefault={defaultLogTitle}
                         showLogTitleField={!logSlug}
+                        logSlug={logSlug}
                     />
 
                     {/* Content area */}

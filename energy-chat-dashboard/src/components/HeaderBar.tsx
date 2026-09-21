@@ -22,6 +22,8 @@ type Props = {
     onAppendLog?: (args: { phase: ConductPhase; note: string; title?: string }) => Promise<boolean>;
     logTitleDefault?: string;
     showLogTitleField?: boolean;
+    /** Slug of the log this session is already appending to, if any. */
+    logSlug?: string | null;
 };
 
 /* ── Inline SVG icons (monochrome, currentColor) ── */
@@ -134,6 +136,7 @@ export default function HeaderBar({
     onAppendLog,
     logTitleDefault,
     showLogTitleField,
+    logSlug,
 }: Props) {
     const [logOpen, setLogOpen] = useState(false);
     const totalWh = typeof sessionTotalWh === "number" ? sessionTotalWh : 0;
@@ -205,6 +208,7 @@ export default function HeaderBar({
                                 open={logOpen}
                                 onClose={() => setLogOpen(false)}
                                 showTitleField={!!showLogTitleField}
+                                activeSlug={logSlug ?? null}
                                 defaultTitle={logTitleDefault || ""}
                                 onAppend={onAppendLog}
                             />

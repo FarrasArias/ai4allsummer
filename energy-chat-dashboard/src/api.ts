@@ -676,6 +676,15 @@ export async function unindexConductLog(
   return res.json();
 }
 
+/** A log's markdown, for the read-only view. Display only — appends still
+ *  go through appendConductLog(). */
+export async function getConductLogContent(
+  slug: string,
+): Promise<{ content?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/api/conduct/log/${encodeURIComponent(slug)}`);
+  return res.json();
+}
+
 export async function openConductPath(
   path: string,
   reveal = false,
