@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from "react";
-import { API_BASE } from "../api";
+import { apiFetch } from "../api";
 
 type PowerPoint = { date: string; power: number; model: string; type?: string };
 export default function AnalyticsPane() {
@@ -8,7 +8,7 @@ export default function AnalyticsPane() {
   const [cloud, setCloud] = useState<PowerPoint[]>([]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/analytics/power`).then(r=>r.json()).then((j)=>{
+    apiFetch(`/api/analytics/power`).then(r=>r.json()).then((j)=>{
       setLocal(j.local ?? []);
       setCloud(j.default ?? []);
     })

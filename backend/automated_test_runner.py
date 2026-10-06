@@ -38,6 +38,9 @@ BASE_URL        = "http://localhost:8000"
 CHAT_ENDPOINT   = f"{BASE_URL}/api/chat"
 RESET_ENDPOINT  = f"{BASE_URL}/api/chat/reset"
 
+# The backend refuses non-GET requests without this header (CSRF guard)
+CLIENT_HEADERS  = {"X-Uness-Client": "1"}
+
 DEFAULT_MODEL       = "qwen3:14b"
 DEFAULT_THINKING    = "fast"
 DEFAULT_RESET_EVERY = 5
@@ -78,7 +81,7 @@ def check_server() -> bool:
 def reset_session(model: str) -> None:
     """Reset the backend chat session for the given model."""
     try:
-        r = requests.post(RESET_ENDPOINT, data={"model": model}, timeout=10)
+        r = requests.post(RESET_ENDPOINT, data={"model": model}, headers=CLIENT_HEADERS, timeout=10)
         r.raise_for_status()
         print(f"  [reset] Session reset for model '{model}'")
     except Exception as e:
@@ -116,6 +119,7 @@ def run_prompt(prompt: str, model: str, thinking_mode: str) -> dict:
         r = requests.post(
             CHAT_ENDPOINT,
             files=multipart_fields,
+            headers=CLIENT_HEADERS,
             stream=True,
             timeout=REQUEST_TIMEOUT,
         )

@@ -112,6 +112,9 @@ reports/
 # RAG embedding cache (rebuilt from uploads)
 rag_cache/
 
+# Server mode: accounts database and every user's data (SERVER_STAGE1.md §3)
+userdata/
+
 # Conduct's user-owned logs live at the repo root (conduct_logs/), not
 # here — see the root .gitignore. conduct_defaults/ ships in the repo
 # and seeds that folder on first run.

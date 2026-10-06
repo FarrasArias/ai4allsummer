@@ -50,7 +50,8 @@ function generateChatName(messages: Msg[]): string {
         .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
-    return base || `chat-${Date.now()}`;
+    // "." and ".." aren't valid folder names; the backend rejects them
+    return base && base !== "." && base !== ".." ? base : `chat-${Date.now()}`;
 }
 
 export default function App() {

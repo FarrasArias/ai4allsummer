@@ -69,9 +69,27 @@ from typing import List, Optional, AsyncGenerator
 import fitz  # PyMuPDF (kept for compatibility. TODO: Remove?)
 import ollama
 import requests
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Depends
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+
+from utilities.access import (
+    AccessMiddleware,
+    CLIENT_HEADER,
+    User,
+    current_user,
+    require_admin,
+    require_local,
+)
+from utilities.user_paths import InvalidName, paths_for, safe_child
+from utilities.uploads import (
+    UploadTooLarge,
+    clean_filename,
+    new_upload_dir,
+    read_upload,
+    remove_dir,
+    save_upload,
+)
 
 from claw_agent_wrapper import (
     run_agent_streaming,
@@ -328,13 +346,30 @@ def _ensure_power_thread():
 
 
 app = FastAPI(title="React <> Python API (Ollama)")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(AccessMiddleware)
+
+# The frontend is served from the same origin (directly, or through Vite's
+# dev proxy), so no CORS by default. A wildcard origin with credentials would
+# let any website make logged-in requests and read the answers.
+_cors_origins = [o.strip() for o in os.environ.get("UNESS_CORS_ORIGINS", "").split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*", CLIENT_HEADER],
+    )
+
+
+@app.exception_handler(UploadTooLarge)
+def _upload_too_large(_request, exc: UploadTooLarge):
+    return JSONResponse({"error": str(exc)}, status_code=413)
+
+
+@app.exception_handler(InvalidName)
+def _invalid_name(_request, exc: InvalidName):
+    return JSONResponse({"error": str(exc)}, status_code=400)
 
 # -----------------------------
 # Model management endpoints
@@ -344,7 +379,7 @@ def list_models():
     return {"models": list(extract_model_names().keys())}
 
 
-@app.post("/api/models/pull")
+@app.post("/api/models/pull", dependencies=[Depends(require_admin)])
 def pull_model(name: str = Form(...)):
     try:
         ollama.pull(name)
@@ -353,7 +388,7 @@ def pull_model(name: str = Form(...)):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-@app.delete("/api/models")
+@app.delete("/api/models", dependencies=[Depends(require_admin)])
 def delete_models(models: List[str]):
     results = {}
     for m in models:
@@ -368,7 +403,7 @@ def delete_models(models: List[str]):
     return {"results": results}
 
 
-@app.post("/api/models/load")
+@app.post("/api/models/load", dependencies=[Depends(require_admin)])
 def load_model_endpoint(model: str = Form(...)):
     """
     Preload a model into Ollama GPU memory without generating any output.
@@ -387,7 +422,7 @@ def load_model_endpoint(model: str = Form(...)):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-@app.post("/api/models/create")
+@app.post("/api/models/create", dependencies=[Depends(require_admin)])
 def create_model(name: str = Form(...), modelfile: str = Form(...)):
     try:
         ollama.create(model=name, modelfile=modelfile)
@@ -443,40 +478,38 @@ def chat(
     model: str = Form(...),
     thinking_mode: str = Form("fast"),
     files: Optional[List[UploadFile]] = File(None),
+    user: User = Depends(current_user),
 ) -> StreamingResponse:
     """
     Streams text chunks as Server-Sent Events (text/event-stream).
     Endpoint signature and path remain unchanged.
     """
 
-    # Persist uploads: images become vision inputs for this prompt,
-    # other files are added to the model's document context (RAG-indexed)
+    # Images become vision inputs for this prompt; other files are added to
+    # the model's document context (RAG-indexed)
     context_files: List[str] = []
     images_b64: List[str] = []
-    if files:
-        tmpdir = os.path.join(CHAT_DIR, "_tmp")
-        os.makedirs(tmpdir, exist_ok=True)
-        for f in files:
-            dst = os.path.join(tmpdir, f.filename)
-            with open(dst, "wb") as out:
-                shutil.copyfileobj(f.file, out)
-            ext = os.path.splitext(f.filename)[1].lower()
-            if ext in IMAGE_UPLOAD_EXTS:
-                with open(dst, "rb") as fh:
-                    images_b64.append(base64.b64encode(fh.read()).decode("ascii"))
+    upload_dir = new_upload_dir(paths_for(user).uploads / "chat") if files else None
+    try:
+        for f in files or []:
+            if os.path.splitext(clean_filename(f.filename))[1].lower() in IMAGE_UPLOAD_EXTS:
+                images_b64.append(base64.b64encode(read_upload(f)).decode("ascii"))
             else:
-                context_files.append(dst)
+                context_files.append(str(save_upload(f, upload_dir)))
 
-    # Get or create the chat engine for this model
-    engine = _get_chat_engine(model)
+        # Get or create the chat engine for this model
+        engine = _get_chat_engine(model)
 
-    # Load uploaded docs into the engine's document window
-    for path in context_files:
-        try:
-            engine.add_document(path)
-        except Exception as e:
-            # Non-fatal: we log, but still attempt to answer the prompt
-            print(f"Error loading document {path}: {e}")
+        # Load uploaded docs into the engine's document window
+        for path in context_files:
+            try:
+                engine.add_document(path)
+            except Exception as e:
+                # Non-fatal: we log, but still attempt to answer the prompt
+                print(f"Error loading document {path}: {e}")
+    finally:
+        if upload_dir:
+            remove_dir(upload_dir)
 
     def _gen() -> AsyncGenerator[bytes, None]:
         global _latest_chat_model
@@ -547,6 +580,7 @@ def vibe_code(
     prompt: str = Form(...),
     model: str = Form(...),
     files: Optional[List[UploadFile]] = File(None),
+    user: User = Depends(current_user),
 ):
     """
     Non-streaming coding assistant endpoint.
@@ -557,28 +591,25 @@ def vibe_code(
     """
     global _latest_chat_model
 
-    _ensure_power_thread()
-    _llm_running_flag["mode"] = "Chat"
-    _latest_chat_model = model
-
     engine = _get_vibe_engine(model)
 
     # Save any uploaded code files and load them into the vibe engine
-    file_paths: List[str] = []
     if files:
-        tmpdir = os.path.join(CHAT_DIR, "_vibe")
-        os.makedirs(tmpdir, exist_ok=True)
-        for f in files:
-            dst = os.path.join(tmpdir, f.filename)
-            with open(dst, "wb") as out:
-                shutil.copyfileobj(f.file, out)
-            file_paths.append(dst)
-
-    for path in file_paths:
+        upload_dir = new_upload_dir(paths_for(user).uploads / "vibe")
         try:
-            engine.load_code_file(path)
-        except Exception as e:
-            print(f"Error loading code file {path}: {e}")
+            for f in files:
+                path = save_upload(f, upload_dir)
+                try:
+                    engine.load_code_file(str(path))
+                except Exception as e:
+                    print(f"Error loading code file {path}: {e}")
+        finally:
+            remove_dir(upload_dir)
+
+    # Set only once nothing above can fail — the finally below is what clears it
+    _ensure_power_thread()
+    _llm_running_flag["mode"] = "Chat"
+    _latest_chat_model = model
 
     meter = _EnergyMeter()
     meter.start()
@@ -617,6 +648,7 @@ def web_chat_endpoint(
     prompt: str = Form(...),
     model: str = Form(...),
     files: Optional[List[UploadFile]] = File(None),
+    user: User = Depends(current_user),
 ):
     """
     Web-enabled chat endpoint (SSE).
@@ -631,27 +663,27 @@ def web_chat_endpoint(
     # exclusively by the Image tab, per the HITL energy policy)
     doc_notes: List[str] = []
     if files:
-        tmpdir = os.path.join(CHAT_DIR, "_web")
-        os.makedirs(tmpdir, exist_ok=True)
-        for f in files:
-            ext = os.path.splitext(f.filename)[1].lower()
-            if ext in IMAGE_UPLOAD_EXTS:
-                doc_notes.append(f"Skipped {f.filename}: images are analyzed in the Image tab.")
-                continue
-            dst = os.path.join(tmpdir, f.filename)
-            with open(dst, "wb") as out:
-                shutil.copyfileobj(f.file, out)
-            try:
-                info = session.add_document(dst)
-                if info.get("skipped"):
+        upload_dir = new_upload_dir(paths_for(user).uploads / "web")
+        try:
+            for f in files:
+                name = clean_filename(f.filename)
+                if os.path.splitext(name)[1].lower() in IMAGE_UPLOAD_EXTS:
+                    doc_notes.append(f"Skipped {name}: images are analyzed in the Image tab.")
                     continue
-                chunks = info.get("rag_chunks")
-                doc_notes.append(
-                    f"Loaded {f.filename}"
-                    + (f" ({chunks} sections indexed)" if chunks else "")
-                )
-            except Exception as e:
-                doc_notes.append(f"Could not load {f.filename}: {e}")
+                dst = save_upload(f, upload_dir)
+                try:
+                    info = session.add_document(str(dst))
+                    if info.get("skipped"):
+                        continue
+                    chunks = info.get("rag_chunks")
+                    doc_notes.append(
+                        f"Loaded {name}"
+                        + (f" ({chunks} sections indexed)" if chunks else "")
+                    )
+                except Exception as e:
+                    doc_notes.append(f"Could not load {name}: {e}")
+        finally:
+            remove_dir(upload_dir)
 
     def _gen():
         global _latest_chat_model
@@ -753,7 +785,7 @@ def conduct_append(slug: str, payload: dict):
     return {"ok": True, "path": str(path)}
 
 
-@app.post("/api/conduct/open")
+@app.post("/api/conduct/open", dependencies=[Depends(require_local)])
 def conduct_open(payload: dict):
     """Open a conduct log in the OS default editor, or reveal it in its
     containing folder. The path is validated to resolve inside
@@ -926,17 +958,9 @@ def analyze_image(
     model: str = Form(...),
     image: UploadFile = File(...),
 ) -> StreamingResponse:
-    # Persist temp image
-    os.makedirs(IMG_DIR, exist_ok=True)
-    path = os.path.join(IMG_DIR, "_tmp_image.png")
-    with open(path, "wb") as out:
-        shutil.copyfileobj(image.file, out)
-
-    # Base64 encode for Ollama multimodal endpoint
-    import base64
-
-    with open(path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode()
+    # Base64 encode for Ollama multimodal endpoint. Kept in memory: a shared
+    # temp file would let two concurrent requests read each other's image.
+    b64 = base64.b64encode(read_upload(image)).decode()
 
     def _gen():
         _ensure_power_thread()
@@ -1038,7 +1062,7 @@ def save_chat(
         None
     ),  # mode, created_at, updated_at
 ):
-    path = os.path.join(CHAT_DIR, name)
+    path = safe_child(CHAT_DIR, name)
     is_new = not os.path.isdir(path)
     os.makedirs(path, exist_ok=True)
 
@@ -1082,7 +1106,7 @@ def save_chat(
 
 @app.get("/api/chats/{name}")
 def load_chat_endpoint(name: str):
-    path = os.path.join(CHAT_DIR, name, "history.json")
+    path = os.path.join(safe_child(CHAT_DIR, name), "history.json")
     if not os.path.exists(path):
         return JSONResponse({"error": "not found"}, status_code=404)
     with open(path, "r", encoding="utf-8") as f:
@@ -1091,7 +1115,7 @@ def load_chat_endpoint(name: str):
 
 @app.delete("/api/chats/{name}")
 def delete_chat_endpoint(name: str):
-    path = os.path.join(CHAT_DIR, name)
+    path = safe_child(CHAT_DIR, name)
     if not os.path.isdir(path):
         return JSONResponse({"error": "not found"}, status_code=404)
     shutil.rmtree(path)
@@ -1100,8 +1124,8 @@ def delete_chat_endpoint(name: str):
 
 @app.post("/api/chats/rename")
 def rename_chat_endpoint(old_name: str = Form(...), new_name: str = Form(...)):
-    old_path = os.path.join(CHAT_DIR, old_name)
-    new_path = os.path.join(CHAT_DIR, new_name)
+    old_path = safe_child(CHAT_DIR, old_name)
+    new_path = safe_child(CHAT_DIR, new_name)
     if not os.path.isdir(old_path):
         return JSONResponse({"error": "not found"}, status_code=404)
     if os.path.exists(new_path):
@@ -1180,29 +1204,31 @@ def save_analysis(
     history_json: str = Form(...),
     image: UploadFile = File(None),
 ):
-    path = os.path.join(IMG_DIR, name)
+    path = safe_child(IMG_DIR, name)
+    image_bytes = read_upload(image) if image else None
     os.makedirs(path, exist_ok=True)
 
     with open(os.path.join(path, "history.json"), "w", encoding="utf-8") as f:
         f.write(history_json)
 
-    if image:
+    if image_bytes is not None:
         with open(os.path.join(path, "image.png"), "wb") as out:
-            shutil.copyfileobj(image.file, out)
+            out.write(image_bytes)
 
     return {"ok": True}
 
 
 @app.get("/api/analyses/{name}")
 def load_analysis_endpoint(name: str):
-    path = os.path.join(IMG_DIR, name, "history.json")
+    analysis_dir = safe_child(IMG_DIR, name)
+    path = os.path.join(analysis_dir, "history.json")
     if not os.path.exists(path):
         return JSONResponse({"error": "not found"}, status_code=404)
 
     with open(path, "r", encoding="utf-8") as f:
         payload = json.load(f)
 
-    img_path = os.path.join(IMG_DIR, name, "image.png")
+    img_path = os.path.join(analysis_dir, "image.png")
     img_exists = os.path.exists(img_path)
 
     return {"history": payload, "has_image": img_exists}
@@ -1274,7 +1300,7 @@ _test_process: Optional[subprocess.Popen] = None
 _test_process_lock = threading.Lock()
 
 
-@app.get("/api/test/prompt-files")
+@app.get("/api/test/prompt-files", dependencies=[Depends(require_local)])
 def test_prompt_files():
     """List .csv and .txt files in the backend dir that could be prompt files."""
     files: list[str] = []
@@ -1299,7 +1325,7 @@ def test_prompt_files():
     return {"files": files}
 
 
-@app.post("/api/test/run")
+@app.post("/api/test/run", dependencies=[Depends(require_local)])
 def test_run(
     prompts_file: str = Form(...),
     output_file: str = Form("test_results.csv"),
@@ -1378,7 +1404,7 @@ def test_run(
     return StreamingResponse(_gen(), media_type="text/event-stream")
 
 
-@app.post("/api/test/stop")
+@app.post("/api/test/stop", dependencies=[Depends(require_local)])
 def test_stop():
     """Kill a running test subprocess."""
     global _test_process
@@ -1400,7 +1426,7 @@ def test_stop():
 _AGENT_CWD = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-@app.post("/api/agent/chat")
+@app.post("/api/agent/chat", dependencies=[Depends(require_local)])
 def agent_chat(
     prompt: str = Form(...),
     model: str = Form(DEFAULT_AGENT_MODEL),
@@ -1437,7 +1463,7 @@ def agent_chat(
     )
 
 
-@app.post("/api/agent/reset")
+@app.post("/api/agent/reset", dependencies=[Depends(require_local)])
 def agent_reset(model: str = Form(DEFAULT_AGENT_MODEL)):
     """Reset the coding agent session for a given model."""
     claw_reset_agent(model)

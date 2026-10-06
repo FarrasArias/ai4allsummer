@@ -1,4 +1,15 @@
-export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+// Same origin by default: the backend serves the built app, and in dev Vite
+// proxies /api to it (vite.config.ts).
+export const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+
+// All API requests go through here. The backend refuses non-GET requests
+// without X-Uness-Client, which stops other websites from submitting forms
+// to it (SERVER_STAGE1.md §1c).
+export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("X-Uness-Client", "1");
+  return fetch(`${API_BASE}${path}`, { ...init, headers });
+}
 
 export function sse(url: string, onMessage: (data: any) => void, onError?: (e: any) => void) {
   const es = new EventSource(url, { withCredentials: false });
@@ -17,7 +28,7 @@ export function sse(url: string, onMessage: (data: any) => void, onError?: (e: a
 }
 
 export async function listModels(): Promise<string[]> {
-  const r = await fetch(`${API_BASE}/api/models`);
+  const r = await apiFetch(`/api/models`);
   const j = await r.json();
   return j.models ?? [];
 }
@@ -25,7 +36,7 @@ export async function listModels(): Promise<string[]> {
 export async function pullModel(name: string) {
   const body = new FormData();
   body.append("name", name);
-  const r = await fetch(`${API_BASE}/api/models/pull`, { method: "POST", body });
+  const r = await apiFetch(`/api/models/pull`, { method: "POST", body });
   return r.json();
 }
 
@@ -33,7 +44,7 @@ export async function createModel(name: string, modelfile: string) {
   const body = new FormData();
   body.append("name", name);
   body.append("modelfile", modelfile);
-  const r = await fetch(`${API_BASE}/api/models/create`, { method: "POST", body });
+  const r = await apiFetch(`/api/models/create`, { method: "POST", body });
   return r.json();
 }
 
@@ -41,13 +52,13 @@ export async function createModel(name: string, modelfile: string) {
 export async function loadModel(model: string): Promise<{ ok: boolean; error?: string }> {
   const body = new FormData();
   body.append("model", model);
-  const res = await fetch(`${API_BASE}/api/models/load`, { method: "POST", body });
+  const res = await apiFetch(`/api/models/load`, { method: "POST", body });
   return res.json();
 }
 
 export async function deleteModels(models: string[]) {
-  const r = await fetch(
-    `${API_BASE}/api/models?` + new URLSearchParams({ models: models as any }),
+  const r = await apiFetch(
+    `/api/models?` + new URLSearchParams({ models: models as any }),
     { method: "DELETE" },
   );
   return r.json();
@@ -80,7 +91,7 @@ export function streamChat(
     if (thinkingMode) body.append("thinking_mode", thinkingMode);
     (files ?? []).forEach((f) => body.append("files", f));
 
-    return fetch(`${API_BASE}/api/chat`, { method: "POST", body }).then(async (res) => {
+    return apiFetch(`/api/chat`, { method: "POST", body }).then(async (res) => {
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let metrics: InferenceMetrics | undefined;
@@ -118,7 +129,7 @@ export function streamImageAnalysis(
   body.append("prompt", prompt);
   body.append("model", model);
   body.append("image", image);
-  return fetch(`${API_BASE}/api/image/analyze`, { method: "POST", body }).then(async (res) => {
+  return apiFetch(`/api/image/analyze`, { method: "POST", body }).then(async (res) => {
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     while (true) {
@@ -145,7 +156,7 @@ export function streamPower(
 }
 
 export async function powerSummary() {
-  const r = await fetch(`${API_BASE}/api/power/summary`);
+  const r = await apiFetch(`/api/power/summary`);
   return r.json();
 }
 
@@ -157,7 +168,7 @@ export type ChatInfo = {
 };
 
 export async function listChats(): Promise<{ chats: ChatInfo[] }> {
-  const r = await fetch(`${API_BASE}/api/chats`);
+  const r = await apiFetch(`/api/chats`);
   return r.json();
 }
 
@@ -204,17 +215,17 @@ export async function saveChat(name: string, history: any, meta?: { mode?: strin
   body.append("name", name);
   body.append("history_json", JSON.stringify(history));
   if (meta) body.append("meta_json", JSON.stringify(meta));
-  const r = await fetch(`${API_BASE}/api/chats/save`, { method: "POST", body });
+  const r = await apiFetch(`/api/chats/save`, { method: "POST", body });
   return r.json();
 }
 
 export async function loadChat(name: string) {
-  const r = await fetch(`${API_BASE}/api/chats/${encodeURIComponent(name)}`);
+  const r = await apiFetch(`/api/chats/${encodeURIComponent(name)}`);
   return r.json();
 }
 
 export async function deleteChat(name: string) {
-  const r = await fetch(`${API_BASE}/api/chats/${encodeURIComponent(name)}`, { method: "DELETE" });
+  const r = await apiFetch(`/api/chats/${encodeURIComponent(name)}`, { method: "DELETE" });
   return r.json();
 }
 
@@ -222,7 +233,7 @@ export async function renameChat(oldName: string, newName: string) {
   const body = new FormData();
   body.append("old_name", oldName);
   body.append("new_name", newName);
-  const r = await fetch(`${API_BASE}/api/chats/rename`, { method: "POST", body });
+  const r = await apiFetch(`/api/chats/rename`, { method: "POST", body });
   return r.json();
 }
 
@@ -236,7 +247,7 @@ export type SearchResult = {
 };
 
 export async function searchChats(query: string): Promise<{ results: SearchResult[] }> {
-  const r = await fetch(`${API_BASE}/api/chats-search?q=${encodeURIComponent(query)}`);
+  const r = await apiFetch(`/api/chats-search?q=${encodeURIComponent(query)}`);
   return r.json();
 }
 
@@ -254,7 +265,7 @@ export async function saveStudySession(opts: {
   if (opts.session) fd.set("session_json", JSON.stringify(opts.session));
   if (opts.interviewText) fd.set("interview_text", opts.interviewText);
 
-  const res = await fetch(`${API_BASE}/api/chats/save`, { method: "POST", body: fd });
+  const res = await apiFetch(`/api/chats/save`, { method: "POST", body: fd });
   return { ok: res.ok };
 }
 
@@ -262,7 +273,7 @@ export async function resetChatSession(model: string) {
   const body = new FormData();
   body.append("model", model);
 
-  const res = await fetch(`${API_BASE}/api/chat/reset`, {
+  const res = await apiFetch(`/api/chat/reset`, {
     method: "POST",
     body,
   });
@@ -290,7 +301,7 @@ export type ModeDefaults = Record<ModeKey, ModeInfo>;
 
 // Fetch default model per high-level mode (Chat / Vibe coding / Image / Web)
 export async function getModeDefaults(): Promise<ModeDefaults> {
-  const res = await fetch(`${API_BASE}/api/modes/default-models`);
+  const res = await apiFetch(`/api/modes/default-models`);
   if (!res.ok) {
     throw new Error("Failed to load mode defaults");
   }
@@ -303,14 +314,14 @@ export async function vibeCode(opts: { prompt: string; model: string; files?: Fi
   body.append("prompt", opts.prompt);
   body.append("model", opts.model);
   (opts.files ?? []).forEach((f) => body.append("files", f));
-  const res = await fetch(`${API_BASE}/api/vibe/code`, { method: "POST", body });
+  const res = await apiFetch(`/api/vibe/code`, { method: "POST", body });
   return res.json();
 }
 
 export async function resetVibe(model: string) {
   const body = new FormData();
   body.append("model", model);
-  const res = await fetch(`${API_BASE}/api/vibe/reset`, { method: "POST", body });
+  const res = await apiFetch(`/api/vibe/reset`, { method: "POST", body });
   return res.json();
 }
 
@@ -340,7 +351,7 @@ export function streamAgentChat(
 
   const controller = new AbortController();
 
-  fetch(`${API_BASE}/api/agent/chat`, {
+  apiFetch(`/api/agent/chat`, {
     method: "POST",
     body,
     signal: controller.signal,
@@ -388,7 +399,7 @@ export function streamAgentChat(
 export async function resetAgent(model: string) {
   const body = new FormData();
   body.append("model", model);
-  const res = await fetch(`${API_BASE}/api/agent/reset`, { method: "POST", body });
+  const res = await apiFetch(`/api/agent/reset`, { method: "POST", body });
   return res.json();
 }
 
@@ -416,7 +427,7 @@ export function streamWebChat(
 
   const controller = new AbortController();
 
-  fetch(`${API_BASE}/api/web/chat`, {
+  apiFetch(`/api/web/chat`, {
     method: "POST",
     body,
     signal: controller.signal,
@@ -465,8 +476,8 @@ export async function getRagDocuments(
   mode: "chat" | "web",
   model: string,
 ): Promise<string[]> {
-  const r = await fetch(
-    `${API_BASE}/api/rag/documents?mode=${mode}&model=${encodeURIComponent(model)}`,
+  const r = await apiFetch(
+    `/api/rag/documents?mode=${mode}&model=${encodeURIComponent(model)}`,
   );
   const j = await r.json();
   return j.documents ?? [];
@@ -475,7 +486,7 @@ export async function getRagDocuments(
 export async function resetWeb(model: string) {
   const body = new FormData();
   body.append("model", model);
-  const res = await fetch(`${API_BASE}/api/web/reset`, { method: "POST", body });
+  const res = await apiFetch(`/api/web/reset`, { method: "POST", body });
   return res.json();
 }
 
@@ -511,7 +522,7 @@ export async function generateImage(opts: ImageGenParams): Promise<ImageGenResul
   if (opts.steps) body.append("steps", String(opts.steps));
   if (opts.cfg_scale) body.append("cfg_scale", String(opts.cfg_scale));
 
-  const res = await fetch(`${API_BASE}/api/image-gen/generate`, { method: "POST", body });
+  const res = await apiFetch(`/api/image-gen/generate`, { method: "POST", body });
   return res.json();
 }
 
@@ -519,21 +530,21 @@ export async function getImageGenStatus(): Promise<{
   sd_available: boolean;
   sd_models: string[];
 }> {
-  const res = await fetch(`${API_BASE}/api/image-gen/status`);
+  const res = await apiFetch(`/api/image-gen/status`);
   return res.json();
 }
 
 export async function resetImageGen(model: string) {
   const body = new FormData();
   body.append("model", model);
-  const res = await fetch(`${API_BASE}/api/image-gen/reset`, { method: "POST", body });
+  const res = await apiFetch(`/api/image-gen/reset`, { method: "POST", body });
   return res.json();
 }
 
 // ── Test Runner ──────────────────────────────────────────────────────────────
 
 export async function getTestPromptFiles(): Promise<string[]> {
-  const r = await fetch(`${API_BASE}/api/test/prompt-files`);
+  const r = await apiFetch(`/api/test/prompt-files`);
   const j = await r.json();
   return j.files ?? [];
 }
@@ -563,7 +574,7 @@ export function runTests(
 
   const controller = new AbortController();
 
-  fetch(`${API_BASE}/api/test/run`, {
+  apiFetch(`/api/test/run`, {
     method: "POST",
     body,
     signal: controller.signal,
@@ -607,13 +618,13 @@ export function runTests(
 }
 
 export async function stopTests(): Promise<void> {
-  await fetch(`${API_BASE}/api/test/stop`, { method: "POST" });
+  await apiFetch(`/api/test/stop`, { method: "POST" });
 }
 
 // ── About ────────────────────────────────────────────────────────────────────
 
 export async function getAboutContent(): Promise<{ content: string }> {
-  const res = await fetch(`${API_BASE}/api/about`);
+  const res = await apiFetch(`/api/about`);
   return res.json();
 }
 
@@ -622,7 +633,7 @@ export async function getAboutContent(): Promise<{ content: string }> {
 export type ConductPhase = "frame" | "explore" | "refine" | "commit";
 
 export async function getConductContent(): Promise<{ reference: string; snippets: string }> {
-  const res = await fetch(`${API_BASE}/api/conduct/content`);
+  const res = await apiFetch(`/api/conduct/content`);
   return res.json();
 }
 
@@ -647,7 +658,7 @@ export type ConductLogSummary = {
 };
 
 export async function getConductLogs(): Promise<ConductLogSummary[]> {
-  const res = await fetch(`${API_BASE}/api/conduct/logs`);
+  const res = await apiFetch(`/api/conduct/logs`);
   const j = await res.json();
   return j.logs ?? [];
 }
@@ -656,7 +667,7 @@ export async function indexConductLog(
   slug: string,
   model?: string,
 ): Promise<{ ok?: boolean; error?: string; chunks?: number | null; skipped?: boolean; model?: string }> {
-  const res = await fetch(`${API_BASE}/api/conduct/log/${encodeURIComponent(slug)}/index`, {
+  const res = await apiFetch(`/api/conduct/log/${encodeURIComponent(slug)}/index`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(model ? { model } : {}),
@@ -669,8 +680,8 @@ export async function unindexConductLog(
   model?: string,
 ): Promise<{ ok?: boolean; error?: string; removed?: number; model?: string }> {
   const qs = model ? `?model=${encodeURIComponent(model)}` : "";
-  const res = await fetch(
-    `${API_BASE}/api/conduct/log/${encodeURIComponent(slug)}/index${qs}`,
+  const res = await apiFetch(
+    `/api/conduct/log/${encodeURIComponent(slug)}/index${qs}`,
     { method: "DELETE" },
   );
   return res.json();
@@ -681,7 +692,7 @@ export async function unindexConductLog(
 export async function getConductLogContent(
   slug: string,
 ): Promise<{ content?: string; error?: string }> {
-  const res = await fetch(`${API_BASE}/api/conduct/log/${encodeURIComponent(slug)}`);
+  const res = await apiFetch(`/api/conduct/log/${encodeURIComponent(slug)}`);
   return res.json();
 }
 
@@ -689,7 +700,7 @@ export async function openConductPath(
   path: string,
   reveal = false,
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`${API_BASE}/api/conduct/open`, {
+  const res = await apiFetch(`/api/conduct/open`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path, reveal }),
@@ -710,8 +721,8 @@ export async function appendConductLog(
     title?: string;
   },
 ): Promise<{ ok: boolean; path?: string; error?: string }> {
-  const res = await fetch(
-    `${API_BASE}/api/conduct/log/${encodeURIComponent(slug)}/append`,
+  const res = await apiFetch(
+    `/api/conduct/log/${encodeURIComponent(slug)}/append`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

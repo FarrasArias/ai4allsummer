@@ -132,7 +132,13 @@ New `backend/utilities/access.py`:
 - Determines `local` vs `online` from `scope["server"]` port + `scope["client"]` (above).
 - Resolves the user: local → owner; online → session cookie lookup, else anonymous.
 - Stores `request.state.user` and `request.state.is_local`.
-- Dependencies `require_user`, `require_admin`, `require_local` used on every route per the table.
+- **Default deny:** the middleware refuses every `/api` path without a user unless it's in
+  `OPEN_PATHS`, so a route added later is protected without anyone remembering to. Admin and
+  Local routes add `require_admin` / `require_local` as dependencies; handlers that need the user
+  take `current_user`.
+- It's a plain ASGI middleware, not `BaseHTTPMiddleware`, so streaming and client-disconnect
+  handling (which the §4 queue relies on) pass through untouched.
+- FastAPI's `/docs` and `/openapi.json` are local-only.
 
 ### 1b. Host header check (DNS rebinding)
 
@@ -429,7 +435,10 @@ The claw agent itself is untouched — stage 2 puts it in a sandbox.
   non-`/api` path returns `index.html`, so `/invite/...` links work).
 - New `backend/serve.py`: starts both listeners in one process (two `uvicorn.Server` objects under
   one asyncio loop), local on `127.0.0.1:8000`, public on `127.0.0.1:8100`. No `--reload`.
-- `start.sh` / `start.bat` (dev mode) stay as they are, apart from binding to `127.0.0.1`.
+- `start.sh` / `start.bat` (dev mode) stay as they are, apart from binding to `127.0.0.1` and
+  `--timeout-graceful-shutdown 3` (done in step 1). Without the timeout, `--reload` hangs forever
+  on any backend edit while the app is open: uvicorn waits for the never-ending power stream to
+  close before restarting. `serve.py` needs the same timeout for clean service restarts.
 - **Dev mode vs the service.** Both use port 8000, and `start.sh` force-kills whatever holds 8000
   on startup — with the service installed, launchd would restart it and the two would fight.
   `start.sh` checks for the LaunchAgent first and, if it's running, exits with "The server is
@@ -487,7 +496,7 @@ Each step is testable on its own, and the app keeps working locally after every 
 | 4 | §2 accounts (backend) + `serve.py` second listener | Public listener refuses everything without a cookie; invite → signup → login works with `curl` |
 | 5 | §3 per-user data | Two test users: separate chats, docs, conduct logs, energy totals; owner's existing chats still there |
 | 6 | §6 locks + §7 screens (login, invite, reset, account menu, Users panel, capability hiding, queue UI, storage clearing) | Full flow in two different browsers through `127.0.0.1:8100` |
-| 7 | §8 build/serve, scripts, Funnel, README | From a phone on mobile data: open link, accept invite, chat, see queue while owner chats at the Mac |
+| 7 | §8 build/serve, scripts, Funnel, README. First fix the 4 TypeScript errors in `ConductPane.tsx` (present before this work) — `npm run build` runs `tsc -b` and fails on them | From a phone on mobile data: open link, accept invite, chat, see queue while owner chats at the Mac |
 
 Rough size: steps 1–3 about 2 days, 4–5 about 3 days, 6 about 2 days, 7 about 1 day.
 

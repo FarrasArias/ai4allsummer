@@ -89,7 +89,7 @@ echo "  [2/3] Starting backend server..."
 (
     cd "$ROOT/backend"
     source .venv/bin/activate
-    python -m uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+    python -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload --timeout-graceful-shutdown 3
 ) &
 BACKEND_PID=$!
 
