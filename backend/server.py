@@ -65,7 +65,6 @@ import subprocess
 import signal
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import date
 from typing import List, Optional, AsyncGenerator
 
 import anyio
@@ -86,6 +85,8 @@ from utilities.access import (
     require_local,
 )
 from utilities.inference_queue import QUEUE, QueueBusy, QueueTimeout, queued_response
+from utilities import energy
+from utilities.energy import EnergyMeter
 from utilities.user_paths import InvalidName, paths_for, safe_child
 from utilities.uploads import (
     UploadTooLarge,
@@ -103,13 +104,7 @@ from claw_agent_wrapper import (
 )
 
 from utilities.ollama_utils import extract_model_names
-from utilities.power_usage import (
-    get_cpu_power_usage,
-    get_gpu_power_usage,
-    get_power_usage_history,
-    get_default_power_usages,
-)
-from utilities.date_time import get_datetime
+from utilities.power_usage import get_default_power_usages
 from utilities import conduct_store
 from utilities import about_store
 
@@ -132,93 +127,8 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 conduct_store.ensure_initialized()
 about_store.ensure_initialized()
 
-# Power tracking
-_llm_running_flag = {"mode": "None"}  # "Chat" | "Image" | "None"
-_normal_consumption = 0.0
-_decay = 0.5
-_latest_prompt_Wh = 0.0
-_session_total_Wh = 0.0
-_calculated_accumulator = 0.0
-_update_period = 0.2  # seconds
-_latest_image_meta = {"date": None, "model": None}
+# Last chat model used — the conduct index endpoints' fallback
 _latest_chat_model: Optional[str] = None
-_power_thread_started = False
-_power_thread_lock = threading.Lock()
-
-
-class _EnergyMeter:
-    """Measures GPU energy for a single inference call.
-
-    Usage (non-streaming):
-        meter = _EnergyMeter()
-        meter.start()
-        result = do_inference(...)
-        energy_wh, ms = meter.finish()
-
-    Usage (streaming):
-        meter = _EnergyMeter()
-        meter.start()
-        for chunk in stream:
-            meter.sample()
-            yield chunk
-        energy_wh, ms = meter.finish()
-    """
-
-    def __init__(self):
-        self.baseline_w = 0.0
-        self.start_time = 0.0
-        self.samples: list[float] = []
-        self._last_sample_time = 0.0
-
-    def start(self):
-        try:
-            gpu_w, _ = get_gpu_power_usage()
-            if gpu_w:
-                self.baseline_w = gpu_w
-        except Exception:
-            pass
-        self.start_time = time.time()
-        self._last_sample_time = self.start_time
-
-    def sample(self):
-        now = time.time()
-        if now - self._last_sample_time >= 0.2:
-            try:
-                gpu_w, _ = get_gpu_power_usage()
-                if gpu_w:
-                    self.samples.append(gpu_w)
-            except Exception:
-                pass
-            self._last_sample_time = now
-
-    def finish(self) -> tuple[float, float]:
-        global _latest_prompt_Wh, _session_total_Wh, _calculated_accumulator
-
-        try:
-            gpu_w, _ = get_gpu_power_usage()
-            if gpu_w:
-                self.samples.append(gpu_w)
-        except Exception:
-            pass
-
-        elapsed_s = time.time() - self.start_time
-        inference_time_ms = int(elapsed_s * 1000)
-
-        if self.samples:
-            avg_power_w = sum(self.samples) / len(self.samples)
-        elif self.baseline_w > 0:
-            avg_power_w = self.baseline_w
-        else:
-            avg_power_w = 0.0
-
-        idle_w = self.baseline_w if self.baseline_w > 0 else _normal_consumption
-        energy_wh = max(0.0, (avg_power_w - idle_w) * elapsed_s / 3600.0)
-
-        _latest_prompt_Wh = energy_wh
-        _session_total_Wh += energy_wh
-        _calculated_accumulator = 0.0
-
-        return energy_wh, inference_time_ms
 
 # Per-model chat engines to preserve memory per model
 _CHAT_ENGINES: dict[str, OllamaChat] = {}
@@ -286,75 +196,12 @@ def _get_imggen_engine(model: str) -> ImageGenEngine:
         return engine
 
 
-def _ensure_power_thread():
-    global _power_thread_started
-    if _power_thread_started:
-        return
-    _power_thread_started = True
-
-    def _runner():
-        global _normal_consumption, _calculated_accumulator
-        global _latest_prompt_Wh, _session_total_Wh
-
-        # This call is unused here but kept for parity with previous behavior
-        _ = get_default_power_usages()
-
-        while True:
-            try:
-                cpu = get_cpu_power_usage()
-                gpu, _ = get_gpu_power_usage()
-                gpu = gpu or 0.0
-
-                if _llm_running_flag["mode"] in ("Chat", "Image"):
-                    _calculated_accumulator += (gpu - _normal_consumption) * _update_period
-                else:
-                    # When an operation ends, compute Wh and persist
-                    if _calculated_accumulator > 0:
-                        _latest_prompt_Wh = _calculated_accumulator / 3600.0
-                        _session_total_Wh += _latest_prompt_Wh
-
-                        entry = {
-                            "date": get_datetime(),
-                            "power": _latest_prompt_Wh,
-                            "model": (
-                                f"{_latest_chat_model}"
-                                if _latest_chat_model
-                                else f"{_latest_image_meta.get('model')}(image_analysis)"
-                            ),
-                        }
-                        path = os.path.join(REPORTS_DIR, "power_consumption_reports.json")
-                        if os.path.exists(path) and os.path.getsize(path) > 0:
-                            try:
-                                with open(path, "r", encoding="utf-8") as f:
-                                    data = json.load(f)
-                            except json.JSONDecodeError:
-                                data = []
-                        else:
-                            data = []
-
-                        data.append(entry)
-                        with open(path, "w", encoding="utf-8") as f:
-                            json.dump(data, f, indent=2)
-
-                        _calculated_accumulator = 0.0
-                        _llm_running_flag["mode"] = "None"
-
-                    _normal_consumption = _normal_consumption * _decay + gpu * (1 - _decay)
-            except Exception:
-                # Don't kill the thread; just ignore telemetry errors
-                pass
-
-            time.sleep(_update_period)
-
-    t = threading.Thread(target=_runner, daemon=True)
-    t.start()
-
-
 @asynccontextmanager
 async def _lifespan(_app):
     # Sync endpoints, and model streams while they generate, each borrow a
     # worker thread; the default 40 is tight once several people use the app.
     anyio.to_thread.current_default_thread_limiter().total_tokens = 200
+    energy.start_sampler()
     yield
 
 
@@ -562,11 +409,9 @@ def chat(
                 # Non-fatal: we log, but still attempt to answer the prompt
                 print(f"Error loading document {path}: {e}")
 
-        _ensure_power_thread()
-        _llm_running_flag["mode"] = "Chat"
         _latest_chat_model = model
 
-        meter = _EnergyMeter()
+        meter = EnergyMeter(user, model, "chat")
         meter.start()
 
         try:
@@ -583,7 +428,6 @@ def chat(
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
         finally:
-            _llm_running_flag["mode"] = "None"
             energy_wh, inference_time_ms = meter.finish()
 
             done_payload = {
@@ -602,15 +446,13 @@ def chat(
     )
 
 @app.post("/api/chat/reset")
-def reset_chat(model: str = Form(...)):
+def reset_chat(model: str = Form(...), user: User = Depends(current_user)):
     """
     Reset conversation history + loaded documents for the given model,
     and zero out per-session energy counters so the dashboard starts fresh.
     Safe to call before any prompt has been sent — if no engine exists yet,
     just zero the counters and return OK without creating a new engine.
     """
-    global _session_total_Wh, _latest_prompt_Wh, _calculated_accumulator
-
     # Only reset the engine if one already exists — avoid creating a new one
     # (which verifies the model via ollama.show and can fail before first prompt)
     with _CHAT_ENGINES_LOCK:
@@ -618,9 +460,7 @@ def reset_chat(model: str = Form(...)):
         if engine is not None:
             engine.reset()
 
-    _session_total_Wh = 0.0
-    _latest_prompt_Wh = 0.0
-    _calculated_accumulator = 0.0
+    energy.reset_session(user)
 
     return {"ok": True}
 
@@ -662,12 +502,9 @@ def vibe_code(
 
         QUEUE.acquire(ticket)
 
-        # Set only once nothing above can fail — the finally below is what clears it
-        _ensure_power_thread()
-        _llm_running_flag["mode"] = "Chat"
         _latest_chat_model = model
 
-        meter = _EnergyMeter()
+        meter = EnergyMeter(user, model, "code")
         meter.start()
         try:
             reply = engine.code(prompt, stream=False)
@@ -676,25 +513,19 @@ def vibe_code(
         except Exception as e:
             meter.finish()
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-        finally:
-            _llm_running_flag["mode"] = "None"
     finally:
         QUEUE.release(ticket)
 
 @app.post("/api/vibe/reset")
-def reset_vibe(model: str = Form(...)):
+def reset_vibe(model: str = Form(...), user: User = Depends(current_user)):
     """
     Reset VibeCodingChat state for the given model,
     and reset per-session energy counters.
     """
-    global _session_total_Wh, _latest_prompt_Wh, _calculated_accumulator
-
     engine = _get_vibe_engine(model)
     engine.reset()
 
-    _session_total_Wh = 0.0
-    _latest_prompt_Wh = 0.0
-    _calculated_accumulator = 0.0
+    energy.reset_session(user)
 
     return {"ok": True}
 
@@ -752,11 +583,9 @@ def web_chat_endpoint(
             except Exception as e:
                 doc_notes.append(f"Could not load {name}: {e}")
 
-        _ensure_power_thread()
-        _llm_running_flag["mode"] = "Chat"
         _latest_chat_model = model
 
-        meter = _EnergyMeter()
+        meter = EnergyMeter(user, model, "web")
         meter.start()
         try:
             for note in doc_notes:
@@ -767,7 +596,6 @@ def web_chat_endpoint(
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n".encode("utf-8")
         finally:
-            _llm_running_flag["mode"] = "None"
             energy_wh, inference_time_ms = meter.finish()
             done = {"type": "done", "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
             yield f"data: {json.dumps(done)}\n\n".encode("utf-8")
@@ -779,18 +607,14 @@ def web_chat_endpoint(
 
 
 @app.post("/api/web/reset")
-def reset_web(model: str = Form(...)):
+def reset_web(model: str = Form(...), user: User = Depends(current_user)):
     """
     Reset WebChatSession for the given model and clear session energy.
     """
-    global _session_total_Wh, _latest_prompt_Wh, _calculated_accumulator
-
     session = _get_web_session(model)
     session.reset()
 
-    _session_total_Wh = 0.0
-    _latest_prompt_Wh = 0.0
-    _calculated_accumulator = 0.0
+    energy.reset_session(user)
 
     return {"ok": True}
 
@@ -960,22 +784,20 @@ def image_gen_endpoint(
     ticket = QUEUE.enter(user.id, "an image generation")
     try:
         QUEUE.acquire(ticket)
-        return _generate_image(prompt, model, enhance, negative_prompt, width, height, steps, cfg_scale)
+        return _generate_image(user, prompt, model, enhance, negative_prompt, width, height, steps, cfg_scale)
     finally:
         QUEUE.release(ticket)
 
 
-def _generate_image(prompt, model, enhance, negative_prompt, width, height, steps, cfg_scale):
+def _generate_image(user, prompt, model, enhance, negative_prompt, width, height, steps, cfg_scale):
     global _latest_chat_model
 
-    _ensure_power_thread()
-    _llm_running_flag["mode"] = "Chat"
     _latest_chat_model = model
 
     engine = _get_imggen_engine(model)
     do_enhance = enhance.lower() in ("true", "1", "yes")
 
-    meter = _EnergyMeter()
+    meter = EnergyMeter(user, model, "image_generation")
     meter.start()
     try:
         result = engine.generate(
@@ -1003,8 +825,6 @@ def _generate_image(prompt, model, enhance, negative_prompt, width, height, step
     except Exception as e:
         meter.finish()
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-    finally:
-        _llm_running_flag["mode"] = "None"
 
 
 @app.get("/api/image-gen/status")
@@ -1020,16 +840,12 @@ def image_gen_status():
 
 
 @app.post("/api/image-gen/reset")
-def reset_image_gen(model: str = Form(...)):
+def reset_image_gen(model: str = Form(...), user: User = Depends(current_user)):
     """Reset ImageGenEngine history for the given model."""
-    global _session_total_Wh, _latest_prompt_Wh, _calculated_accumulator
-
     engine = _get_imggen_engine(model)
     engine.reset()
 
-    _session_total_Wh = 0.0
-    _latest_prompt_Wh = 0.0
-    _calculated_accumulator = 0.0
+    energy.reset_session(user)
 
     return {"ok": True}
 
@@ -1050,11 +866,8 @@ def analyze_image(
     ticket = QUEUE.enter(user.id, "an image analysis")
 
     def _gen():
-        _ensure_power_thread()
-        _llm_running_flag["mode"] = "Image"
-        _latest_image_meta.update({"date": get_datetime(), "model": model})
 
-        meter = _EnergyMeter()
+        meter = EnergyMeter(user, model, "image_analysis")
         meter.start()
 
         try:
@@ -1091,7 +904,6 @@ def analyze_image(
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
         finally:
-            _llm_running_flag["mode"] = "None"
             energy_wh, inference_time_ms = meter.finish()
             done_payload = {"done": True, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
             yield f"data: {json.dumps(done_payload)}\n\n".encode("utf-8")
@@ -1325,30 +1137,18 @@ def load_analysis_endpoint(name: str):
 # Power endpoints
 # -----------------------------
 @app.get("/api/power/summary")
-def power_summary():
-    path = os.path.join(REPORTS_DIR, "power_consumption_reports.json")
-    df = get_power_usage_history(path)
-    today_total = 0.0
-    if not df.empty:
-        today = date.today()
-        today_rows = df[df["date"].dt.date == today]
-        today_total = float(today_rows["power"].sum())
-    return {
-        "latest_prompt_Wh": _latest_prompt_Wh,
-        "session_total_Wh": _session_total_Wh,
-        "today_total_Wh": today_total,
-    }
+def power_summary(user: User = Depends(current_user)):
+    return energy.summary(user)
 
 
 @app.get("/api/power/stream")
-async def power_stream():
+async def power_stream(user: User = Depends(current_user)):
     # Async so an open dashboard doesn't hold a worker thread for as long as
     # the tab stays open; only the summary read borrows one briefly.
     async def _gen():
-        _ensure_power_thread()
         while True:
             try:
-                summary = await run_in_threadpool(power_summary)
+                summary = await run_in_threadpool(energy.summary, user)
             except Exception:
                 break
             yield f"data: {json.dumps(summary)}\n\n".encode("utf-8")
@@ -1365,12 +1165,12 @@ def queue_status(user: User = Depends(current_user)):
 
 
 @app.get("/api/analytics/power")
-def analytics_power():
-    local_path = os.path.join(REPORTS_DIR, "power_consumption_reports.json")
-    df_local = get_power_usage_history(local_path)
+def analytics_power(scope: str = "mine", user: User = Depends(current_user)):
+    """The caller's metered prompts; an admin may pass scope=all for everyone's
+    (SERVER_STAGE1.md D7)."""
+    local = energy.history(None if scope == "all" and user.is_admin else user)
     df_default = get_default_power_usages()
 
-    local = df_local.to_dict(orient="records") if not df_local.empty else []
     default = (
         df_default.to_dict(orient="records")
         if df_default is not None and not df_default.empty
@@ -1541,18 +1341,15 @@ def agent_chat(
 
     def _gen_with_energy():
         global _latest_chat_model
-        _ensure_power_thread()
-        _llm_running_flag["mode"] = "Chat"
         _latest_chat_model = model
 
-        meter = _EnergyMeter()
+        meter = EnergyMeter(user, model, "agent")
         meter.start()
         try:
             for chunk in run_agent_streaming(model=model, prompt=prompt, cwd=cwd):
                 meter.sample()
                 yield chunk
         finally:
-            _llm_running_flag["mode"] = "None"
             energy_wh, inference_time_ms = meter.finish()
             payload = {"type": "energy", "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
             yield f"data: {json.dumps(payload)}\n\n".encode("utf-8")

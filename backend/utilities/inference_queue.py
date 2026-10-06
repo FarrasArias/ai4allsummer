@@ -37,6 +37,12 @@ MAX_JOB_SECONDS = int(os.environ.get("UNESS_MAX_JOB_SECONDS", "600"))
 MAX_JOBS_PER_USER = int(os.environ.get("UNESS_MAX_JOBS_PER_USER", "1"))
 # How long a non-streaming request may wait for its turn
 MAX_WAIT_SECONDS = MAX_JOB_SECONDS
+# Pause between back-to-back jobs. powermetrics reports power once a second,
+# averaged over the second before; a job started the instant the previous one
+# ended would be charged for that job's last second at full load. Measured on
+# an M5 Pro: a 1.4 s prompt read 10-13 W above idle alone but 27-31 W queued
+# directly behind another job. After the gap it reads like a prompt sent alone.
+GAP_SECONDS = float(os.environ.get("UNESS_QUEUE_GAP_SECONDS", "2"))
 
 _POLL_SECONDS = 0.5
 # An SSE comment now and then keeps proxies from dropping a long wait as idle
@@ -71,6 +77,9 @@ class InferenceQueue:
         self._waiting: deque[Ticket] = deque()
         self._running: Optional[Ticket] = None
         self._ids = itertools.count(1)
+        # When the slot last became free (None while a job runs) — the energy
+        # sampler only takes idle readings once things have settled
+        self._idle_since: Optional[float] = time.monotonic() - GAP_SECONDS
 
     # -- entering and leaving ------------------------------------------------
 
@@ -90,6 +99,7 @@ class InferenceQueue:
         with self._cond:
             if self._running is ticket:
                 self._running = None
+                self._idle_since = time.monotonic()
             else:
                 try:
                     self._waiting.remove(ticket)
@@ -117,16 +127,19 @@ class InferenceQueue:
                         pass
                     self._cond.notify_all()
                     raise QueueTimeout()
-                # Wake at least once a second so an overdue job gets expired
-                self._cond.wait(min(remaining, 1.0))
+                # Wake regularly: to expire an overdue job, and to notice the
+                # gap after the last job has passed (nothing notifies for that)
+                self._cond.wait(min(remaining, 0.25))
 
     def _take_if_next(self, ticket: Ticket) -> bool:
         # Caller holds the lock
         self._expire_overdue()
-        if self._running is None and self._waiting and self._waiting[0] is ticket:
+        settled = self._idle_since is not None and time.monotonic() - self._idle_since >= GAP_SECONDS
+        if settled and self._waiting and self._waiting[0] is ticket:
             self._waiting.popleft()
             ticket.started = time.monotonic()
             self._running = ticket
+            self._idle_since = None
             return True
         return False
 
@@ -138,6 +151,7 @@ class InferenceQueue:
         if job and not job.exempt and time.monotonic() - job.started > MAX_JOB_SECONDS:
             logger.warning("Queue: job %s (%s) passed %ss, giving up its slot", job.id, job.label, MAX_JOB_SECONDS)
             self._running = None
+            self._idle_since = time.monotonic()
             self._cond.notify_all()
 
     # -- reporting -------------------------------------------------------------
@@ -158,6 +172,11 @@ class InferenceQueue:
         if running is not None and running.exempt:
             msg += f" (the host is running {running.label})"
         return msg
+
+    def idle_seconds(self) -> float:
+        """How long no job has been running (0 while one is)."""
+        with self._cond:
+            return 0.0 if self._idle_since is None else time.monotonic() - self._idle_since
 
     def snapshot(self, user_id: int) -> dict:
         with self._cond:

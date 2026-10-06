@@ -308,6 +308,12 @@ New `backend/utilities/inference_queue.py`. One instance shared by both listener
 - A user may have **one** job in progress (running or waiting). A second one gets
   `429 "You already have a request in progress"`.
 - A job longer than 10 minutes is stopped and its slot released (`.env`, `UNESS_MAX_JOB_SECONDS`).
+- **Settling gap:** after a job ends, the next one starts 2 seconds later
+  (`UNESS_QUEUE_GAP_SECONDS`). Found in step 3: `powermetrics` reports once a second, averaged
+  over the second before, so a job started the instant the previous one ended was charged for
+  that job's last second. Measured on this Mac (M5 Pro, qwen3:1.7b, same 99-in/231-out prompt,
+  4 runs each): alone 9.6–11.9 W above idle; queued with no gap 26.3–31.1 W; queued with the 2 s
+  gap 11.3–16.6 W (vs 9.2–13.7 W alone in that run). Cost: 2 s between back-to-back jobs.
 - Only model work queues: chat, vibe, web, image analysis, image generation, model preload,
   document indexing on upload, and conduct log indexing (embedding is GPU work too). Login, chats,
   settings, model downloads and the power stream never wait.
@@ -379,6 +385,13 @@ today for one user. What changes is bookkeeping:
   runs), falling back to the instantaneous reading if no baseline exists yet. Verify in step 3 by
   running the same prompt alone and back-to-back behind another: the two numbers should now match.
 - `today_total_Wh` and `/api/analytics/power` filter to the caller; admins can ask for all (D7).
+- Found in step 3: the report file was never actually written before. The background thread
+  only wrote an entry if it caught the instant between a prompt clearing the "running" flag and
+  the meter zeroing the accumulator — in practice never. So "today" and the Analytics history
+  were always empty. Writing from the meter (D5) fixes this.
+- The code now lives in `backend/utilities/energy.py`; the old accumulator thread, the running
+  flag and the global totals are gone from `server.py`. (The Analytics screen,
+  `AnalyticsPane.tsx`, isn't linked from anywhere in the app — D7 is backend-only for now.)
 - `_llm_running_flag` / `_latest_chat_model` / `_latest_image_meta` stay global — with one job at
   a time they correctly mean "what's running now".
 
