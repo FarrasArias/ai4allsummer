@@ -63,14 +63,18 @@ import shutil
 import threading
 import subprocess
 import signal
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import date
 from typing import List, Optional, AsyncGenerator
 
+import anyio
 import fitz  # PyMuPDF (kept for compatibility. TODO: Remove?)
 import ollama
 import requests
 from fastapi import FastAPI, UploadFile, File, Form, Depends
 from fastapi.responses import StreamingResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
 from utilities.access import (
@@ -81,6 +85,7 @@ from utilities.access import (
     require_admin,
     require_local,
 )
+from utilities.inference_queue import QUEUE, QueueBusy, QueueTimeout, queued_response
 from utilities.user_paths import InvalidName, paths_for, safe_child
 from utilities.uploads import (
     UploadTooLarge,
@@ -345,7 +350,15 @@ def _ensure_power_thread():
     t.start()
 
 
-app = FastAPI(title="React <> Python API (Ollama)")
+@asynccontextmanager
+async def _lifespan(_app):
+    # Sync endpoints, and model streams while they generate, each borrow a
+    # worker thread; the default 40 is tight once several people use the app.
+    anyio.to_thread.current_default_thread_limiter().total_tokens = 200
+    yield
+
+
+app = FastAPI(title="React <> Python API (Ollama)", lifespan=_lifespan)
 app.add_middleware(AccessMiddleware)
 
 # The frontend is served from the same origin (directly, or through Vite's
@@ -370,6 +383,26 @@ def _upload_too_large(_request, exc: UploadTooLarge):
 @app.exception_handler(InvalidName)
 def _invalid_name(_request, exc: InvalidName):
     return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.exception_handler(QueueBusy)
+def _queue_busy(_request, exc: QueueBusy):
+    return JSONResponse({"error": str(exc)}, status_code=429)
+
+
+@app.exception_handler(QueueTimeout)
+def _queue_timeout(_request, exc: QueueTimeout):
+    return JSONResponse({"error": str(exc)}, status_code=503)
+
+
+# Queue status/error events in each stream's own shape (see queued_stream):
+# chat and image analysis use {"status"}/{"error"}; web and agent use "type".
+def _chat_event(kind: str, text: str) -> dict:
+    return {kind: text}
+
+
+def _typed_event(kind: str, text: str) -> dict:
+    return {"type": "status", "text": text} if kind == "status" else {"type": "error", "error": text}
 
 # -----------------------------
 # Model management endpoints
@@ -404,13 +437,17 @@ def delete_models(models: List[str]):
 
 
 @app.post("/api/models/load", dependencies=[Depends(require_admin)])
-def load_model_endpoint(model: str = Form(...)):
+def load_model_endpoint(model: str = Form(...), user: User = Depends(current_user)):
     """
     Preload a model into Ollama GPU memory without generating any output.
     Blocks until the model is fully loaded. Use this to warm up the GPU
     before the first prompt so the initial response isn't delayed.
     """
+    # Loading uses the GPU, so it takes a turn — but doesn't count toward the
+    # user's one-request limit, or switching models would block their next prompt
+    ticket = QUEUE.enter(user.id, "a model load", counted=False)
     try:
+        QUEUE.acquire(ticket)
         r = requests.post(
             "http://localhost:11434/api/generate",
             json={"model": model, "prompt": "", "keep_alive": -1, "stream": False},
@@ -418,8 +455,12 @@ def load_model_endpoint(model: str = Form(...)):
         )
         r.raise_for_status()
         return {"ok": True, "model": model}
+    except QueueTimeout:
+        raise
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    finally:
+        QUEUE.release(ticket)
 
 
 @app.post("/api/models/create", dependencies=[Depends(require_admin)])
@@ -485,6 +526,8 @@ def chat(
     Endpoint signature and path remain unchanged.
     """
 
+    ticket = QUEUE.enter(user.id, "a chat")
+
     # Images become vision inputs for this prompt; other files are added to
     # the model's document context (RAG-indexed)
     context_files: List[str] = []
@@ -499,20 +542,26 @@ def chat(
 
         # Get or create the chat engine for this model
         engine = _get_chat_engine(model)
+    except BaseException:
+        QUEUE.release(ticket)
+        if upload_dir:
+            remove_dir(upload_dir)
+        raise
 
-        # Load uploaded docs into the engine's document window
+    def _gen() -> AsyncGenerator[bytes, None]:
+        global _latest_chat_model
+
+        # Load uploaded docs into the engine's document window. Indexing
+        # embeds them on the GPU, so it happens here, once it's our turn.
+        if context_files:
+            yield f"data: {json.dumps({'status': 'Reading your documents…'})}\n\n".encode("utf-8")
         for path in context_files:
             try:
                 engine.add_document(path)
             except Exception as e:
                 # Non-fatal: we log, but still attempt to answer the prompt
                 print(f"Error loading document {path}: {e}")
-    finally:
-        if upload_dir:
-            remove_dir(upload_dir)
 
-    def _gen() -> AsyncGenerator[bytes, None]:
-        global _latest_chat_model
         _ensure_power_thread()
         _llm_running_flag["mode"] = "Chat"
         _latest_chat_model = model
@@ -547,7 +596,10 @@ def chat(
             }
             yield f"data: {json.dumps(done_payload)}\n\n".encode("utf-8")
 
-    return StreamingResponse(_gen(), media_type="text/event-stream")
+    return queued_response(
+        ticket, _gen, _chat_event,
+        cleanup=(lambda: remove_dir(upload_dir)) if upload_dir else None,
+    )
 
 @app.post("/api/chat/reset")
 def reset_chat(model: str = Form(...)):
@@ -591,37 +643,43 @@ def vibe_code(
     """
     global _latest_chat_model
 
-    engine = _get_vibe_engine(model)
-
-    # Save any uploaded code files and load them into the vibe engine
-    if files:
-        upload_dir = new_upload_dir(paths_for(user).uploads / "vibe")
-        try:
-            for f in files:
-                path = save_upload(f, upload_dir)
-                try:
-                    engine.load_code_file(str(path))
-                except Exception as e:
-                    print(f"Error loading code file {path}: {e}")
-        finally:
-            remove_dir(upload_dir)
-
-    # Set only once nothing above can fail — the finally below is what clears it
-    _ensure_power_thread()
-    _llm_running_flag["mode"] = "Chat"
-    _latest_chat_model = model
-
-    meter = _EnergyMeter()
-    meter.start()
+    ticket = QUEUE.enter(user.id, "a code request")
     try:
-        reply = engine.code(prompt, stream=False)
-        energy_wh, inference_time_ms = meter.finish()
-        return {"ok": True, "response": reply, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
-    except Exception as e:
-        meter.finish()
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        engine = _get_vibe_engine(model)
+
+        # Save any uploaded code files and load them into the vibe engine
+        if files:
+            upload_dir = new_upload_dir(paths_for(user).uploads / "vibe")
+            try:
+                for f in files:
+                    path = save_upload(f, upload_dir)
+                    try:
+                        engine.load_code_file(str(path))
+                    except Exception as e:
+                        print(f"Error loading code file {path}: {e}")
+            finally:
+                remove_dir(upload_dir)
+
+        QUEUE.acquire(ticket)
+
+        # Set only once nothing above can fail — the finally below is what clears it
+        _ensure_power_thread()
+        _llm_running_flag["mode"] = "Chat"
+        _latest_chat_model = model
+
+        meter = _EnergyMeter()
+        meter.start()
+        try:
+            reply = engine.code(prompt, stream=False)
+            energy_wh, inference_time_ms = meter.finish()
+            return {"ok": True, "response": reply, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
+        except Exception as e:
+            meter.finish()
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        finally:
+            _llm_running_flag["mode"] = "None"
     finally:
-        _llm_running_flag["mode"] = "None"
+        QUEUE.release(ticket)
 
 @app.post("/api/vibe/reset")
 def reset_vibe(model: str = Form(...)):
@@ -657,36 +715,43 @@ def web_chat_endpoint(
     - Streams real progress events: {"type":"status"|"assistant"|"error"|"done"}
     - The final done event carries per-prompt energy metrics
     """
-    session = _get_web_session(model)
+    ticket = QUEUE.enter(user.id, "a web search")
 
-    # Persist uploads and index them (documents only — images are handled
-    # exclusively by the Image tab, per the HITL energy policy)
+    # Persist uploads (documents only — images are handled exclusively by the
+    # Image tab, per the HITL energy policy); they're indexed once it's our turn
     doc_notes: List[str] = []
-    if files:
-        upload_dir = new_upload_dir(paths_for(user).uploads / "web")
-        try:
-            for f in files:
-                name = clean_filename(f.filename)
-                if os.path.splitext(name)[1].lower() in IMAGE_UPLOAD_EXTS:
-                    doc_notes.append(f"Skipped {name}: images are analyzed in the Image tab.")
-                    continue
-                dst = save_upload(f, upload_dir)
-                try:
-                    info = session.add_document(str(dst))
-                    if info.get("skipped"):
-                        continue
-                    chunks = info.get("rag_chunks")
-                    doc_notes.append(
-                        f"Loaded {name}"
-                        + (f" ({chunks} sections indexed)" if chunks else "")
-                    )
-                except Exception as e:
-                    doc_notes.append(f"Could not load {name}: {e}")
-        finally:
+    saved_docs: List[tuple] = []
+    upload_dir = new_upload_dir(paths_for(user).uploads / "web") if files else None
+    try:
+        session = _get_web_session(model)
+        for f in files or []:
+            name = clean_filename(f.filename)
+            if os.path.splitext(name)[1].lower() in IMAGE_UPLOAD_EXTS:
+                doc_notes.append(f"Skipped {name}: images are analyzed in the Image tab.")
+                continue
+            saved_docs.append((name, save_upload(f, upload_dir)))
+    except BaseException:
+        QUEUE.release(ticket)
+        if upload_dir:
             remove_dir(upload_dir)
+        raise
 
     def _gen():
         global _latest_chat_model
+
+        for name, dst in saved_docs:
+            try:
+                info = session.add_document(str(dst))
+                if info.get("skipped"):
+                    continue
+                chunks = info.get("rag_chunks")
+                doc_notes.append(
+                    f"Loaded {name}"
+                    + (f" ({chunks} sections indexed)" if chunks else "")
+                )
+            except Exception as e:
+                doc_notes.append(f"Could not load {name}: {e}")
+
         _ensure_power_thread()
         _llm_running_flag["mode"] = "Chat"
         _latest_chat_model = model
@@ -707,7 +772,10 @@ def web_chat_endpoint(
             done = {"type": "done", "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
             yield f"data: {json.dumps(done)}\n\n".encode("utf-8")
 
-    return StreamingResponse(_gen(), media_type="text/event-stream")
+    return queued_response(
+        ticket, _gen, _typed_event,
+        cleanup=(lambda: remove_dir(upload_dir)) if upload_dir else None,
+    )
 
 
 @app.post("/api/web/reset")
@@ -798,7 +866,7 @@ def conduct_open(payload: dict):
 
 
 @app.post("/api/conduct/log/{slug}/index")
-def conduct_index(slug: str, payload: dict | None = None):
+def conduct_index(slug: str, payload: dict | None = None, user: User = Depends(current_user)):
     """Register a conduct log with a chat model's knowledge layer, so later
     questions can retrieve it as a source document.
 
@@ -818,10 +886,17 @@ def conduct_index(slug: str, payload: dict | None = None):
         or _latest_chat_model
         or get_model_config().get("chat", {}).get("default", CHAT_DEFAULT_MODEL)
     )
+    # Embedding the log is GPU work, so it waits for a turn
+    ticket = QUEUE.enter(user.id, "document indexing")
     try:
+        QUEUE.acquire(ticket)
         info = _get_chat_engine(model).reindex_document(str(path))
+    except QueueTimeout:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        QUEUE.release(ticket)
 
     return {
         "ok": True,
@@ -875,12 +950,22 @@ def image_gen_endpoint(
     height: int = Form(512),
     steps: int = Form(25),
     cfg_scale: float = Form(7.0),
+    user: User = Depends(current_user),
 ):
     """
     Generate an image via local Stable Diffusion WebUI API.
     `model` is the Ollama model used for prompt enhancement.
     Returns JSON with base64 image and metadata.
     """
+    ticket = QUEUE.enter(user.id, "an image generation")
+    try:
+        QUEUE.acquire(ticket)
+        return _generate_image(prompt, model, enhance, negative_prompt, width, height, steps, cfg_scale)
+    finally:
+        QUEUE.release(ticket)
+
+
+def _generate_image(prompt, model, enhance, negative_prompt, width, height, steps, cfg_scale):
     global _latest_chat_model
 
     _ensure_power_thread()
@@ -957,10 +1042,12 @@ def analyze_image(
     prompt: str = Form(...),
     model: str = Form(...),
     image: UploadFile = File(...),
+    user: User = Depends(current_user),
 ) -> StreamingResponse:
     # Base64 encode for Ollama multimodal endpoint. Kept in memory: a shared
     # temp file would let two concurrent requests read each other's image.
     b64 = base64.b64encode(read_upload(image)).decode()
+    ticket = QUEUE.enter(user.id, "an image analysis")
 
     def _gen():
         _ensure_power_thread()
@@ -1009,7 +1096,7 @@ def analyze_image(
             done_payload = {"done": True, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
             yield f"data: {json.dumps(done_payload)}\n\n".encode("utf-8")
 
-    return StreamingResponse(_gen(), media_type="text/event-stream")
+    return queued_response(ticket, _gen, _chat_event)
 
 
 # -----------------------------
@@ -1254,18 +1341,27 @@ def power_summary():
 
 
 @app.get("/api/power/stream")
-def power_stream():
-    def _gen():
+async def power_stream():
+    # Async so an open dashboard doesn't hold a worker thread for as long as
+    # the tab stays open; only the summary read borrows one briefly.
+    async def _gen():
         _ensure_power_thread()
         while True:
             try:
-                summary = power_summary()
-                yield f"data: {json.dumps(summary)}\n\n".encode("utf-8")
-                time.sleep(1.0)
+                summary = await run_in_threadpool(power_summary)
             except Exception:
                 break
+            yield f"data: {json.dumps(summary)}\n\n".encode("utf-8")
+            await asyncio.sleep(1.0)
 
     return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+@app.get("/api/queue")
+def queue_status(user: User = Depends(current_user)):
+    """Whether a model job is running, how many are waiting, and the caller's
+    place in line (0 = running, null = nothing queued)."""
+    return QUEUE.snapshot(user.id)
 
 
 @app.get("/api/analytics/power")
@@ -1430,6 +1526,7 @@ _AGENT_CWD = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def agent_chat(
     prompt: str = Form(...),
     model: str = Form(DEFAULT_AGENT_MODEL),
+    user: User = Depends(current_user),
 ):
     """
     Run the coding agent with the given prompt and stream events
@@ -1438,6 +1535,9 @@ def agent_chat(
     from pathlib import Path
 
     cwd = Path(_AGENT_CWD)
+    # One turn for the whole run, with no time cap: its energy is metered as
+    # one block, so nothing else may run in between (SERVER_STAGE1.md D12)
+    ticket = QUEUE.enter(user.id, "an agent task", exempt=True)
 
     def _gen_with_energy():
         global _latest_chat_model
@@ -1457,10 +1557,7 @@ def agent_chat(
             payload = {"type": "energy", "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
             yield f"data: {json.dumps(payload)}\n\n".encode("utf-8")
 
-    return StreamingResponse(
-        _gen_with_energy(),
-        media_type="text/event-stream",
-    )
+    return queued_response(ticket, _gen_with_energy, _typed_event)
 
 
 @app.post("/api/agent/reset", dependencies=[Depends(require_local)])

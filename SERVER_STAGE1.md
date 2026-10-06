@@ -33,7 +33,7 @@ measured per prompt the same way as today (plus one baseline fix, D11).
 
 ## Decisions
 
-All twelve approved as recommended on 2026-10-05. The rest of the brief assumes them.
+D1–D12 approved as recommended on 2026-10-05; the rest of the brief assumes them. D13 is open.
 
 | # | Decision | Recommendation |
 |---|---|---|
@@ -49,6 +49,7 @@ All twelve approved as recommended on 2026-10-05. The rest of the brief assumes 
 | D10 | Deleting a user | Account and sessions removed; their data folder is **moved to `userdata/_deleted/`**, not erased. Hard deletion stays a manual step. |
 | D11 | Idle baseline for per-prompt energy | Today the meter takes the GPU reading at the moment a prompt starts as "idle". With a queue, prompts start right after each other while the GPU is still busy, so that reading is high and energy is under-counted. **Use the idle baseline tracked by the background thread while nothing runs** (see §5). This changes how numbers are computed — flagging it because it's research data. |
 | D12 | Agent mode at the Mac while online users are active | Agent runs make many model calls with tool work in between, and are metered as one block. **In stage 1 an agent run holds the queue for its whole run** (clean energy, online users wait and see "The host is running an agent task"). Per-call turns come with stage 2. Agent is usable only at the Mac — an admin logged in online doesn't get it either. |
+| D13 | **Open** — the Code tab online | Found in step 2: the Code tab (`VibeCodingPane`) runs the **agent** (`/api/agent/chat`, shell access), not the text-only `/api/vibe/code`, which no screen calls. So locking Agent online also locks the Code tab. Options: hide Code online, or have it use the text-only code assistant online and the agent only at the Mac. |
 
 ---
 
@@ -326,9 +327,10 @@ New `backend/utilities/inference_queue.py`. One instance shared by both listener
   position.
 - **Streaming endpoints** (chat, web, image analysis) are wrapped in an **async** generator. It
   polls `try_acquire` every half second with `asyncio.sleep` (so waiting holds no thread) and
-  yields a position update whenever it changes. Once it has the slot, it runs the existing sync
-  stream through `iterate_in_threadpool`. Its `finally` closes the model stream and releases the
-  ticket. Starlette cancels the response when the client disconnects, which raises inside the
+  yields a position update whenever it changes. Once it has the slot, it steps the existing sync
+  stream in worker threads, one `next()` at a time under a lock — a cancelled request can leave a
+  thread mid-`next()`, and closing must wait for it rather than fail. Its `finally` closes the
+  model stream and only then releases the ticket, so the slot is held until GPU work stops. Starlette cancels the response when the client disconnects, which raises inside the
   async generator, so a closed tab always frees its place — waiting or running.
 - Status event shapes differ per pane and must match what each one already parses: chat
   `{"status": …}` (already displayed — that's how "Searching your documents…" appears), web
@@ -337,9 +339,14 @@ New `backend/utilities/inference_queue.py`. One instance shared by both listener
 - Document indexing for uploads moves from the request handler into the generator, after the
   ticket is taken. Files are still *saved* in the handler (FastAPI may close uploads once the
   handler returns).
-- **Non-streaming endpoints** (vibe, image generation, model preload) block in the handler with
-  the same rules and a 10-minute wait timeout (`503 "Server busy"`). The frontend shows "Waiting
-  for the server…" if the reply takes more than 2 seconds.
+- **Non-streaming endpoints** (vibe, image generation, model preload, conduct indexing) block in
+  the handler with the same rules and a 10-minute wait timeout (`503 "Server busy"`). No extra
+  frontend work needed: `/api/vibe/code` isn't called by the frontend at all (the Code tab uses
+  the agent — see D13), and Image generation already shows "Generating image…" while it waits.
+- Model preload takes a turn but doesn't count toward the one-request limit — otherwise switching
+  models with auto-preload on would block the user's next prompt.
+- Errors the server sends (429/503, a model error, the 10-minute stop) are now shown as their
+  actual text in Chat and Image analysis, instead of a generic "something went wrong".
 - `GET /api/queue` → `{running: bool, waiting: n, mine: position|null}` for a small "Server busy"
   indicator in the header.
 
@@ -496,7 +503,7 @@ Each step is testable on its own, and the app keeps working locally after every 
 | 4 | §2 accounts (backend) + `serve.py` second listener | Public listener refuses everything without a cookie; invite → signup → login works with `curl` |
 | 5 | §3 per-user data | Two test users: separate chats, docs, conduct logs, energy totals; owner's existing chats still there |
 | 6 | §6 locks + §7 screens (login, invite, reset, account menu, Users panel, capability hiding, queue UI, storage clearing) | Full flow in two different browsers through `127.0.0.1:8100` |
-| 7 | §8 build/serve, scripts, Funnel, README. First fix the 4 TypeScript errors in `ConductPane.tsx` (present before this work) — `npm run build` runs `tsc -b` and fails on them | From a phone on mobile data: open link, accept invite, chat, see queue while owner chats at the Mac |
+| 7 | §8 build/serve, scripts, Funnel, README. First fix the 4 TypeScript errors in `App.tsx:130` and `ConductPane.tsx` (present before this work) — `npm run build` runs `tsc -b` and fails on them | From a phone on mobile data: open link, accept invite, chat, see queue while owner chats at the Mac |
 
 Rough size: steps 1–3 about 2 days, 4–5 about 3 days, 6 about 2 days, 7 about 1 day.
 

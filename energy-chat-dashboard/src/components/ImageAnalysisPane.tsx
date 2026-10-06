@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { streamImageAnalysis } from "../api";
+import { ApiError, streamImageAnalysis } from "../api";
 
 type Turn = {
   prompt: string;
@@ -47,6 +47,8 @@ export default function ImageAnalysisPane({ model }: Props) {
     return [];
   });
   const [isStreaming, setIsStreaming] = useState(false);
+  // e.g. "Waiting in line — 1 ahead of you", shown until the first words arrive
+  const [statusText, setStatusText] = useState<string | null>(null);
 
   // Persist Q&A turns so they survive tab switches and page refreshes
   useEffect(() => {
@@ -138,6 +140,7 @@ export default function ImageAnalysisPane({ model }: Props) {
             return next;
           });
         },
+        setStatusText,
       );
     } catch (err) {
       console.error(err);
@@ -147,13 +150,16 @@ export default function ImageAnalysisPane({ model }: Props) {
         if (lastIndex >= 0) {
           next[lastIndex] = {
             prompt: currentPrompt,
-            response: "Sorry, something went wrong while analyzing the image.",
+            response: err instanceof ApiError
+              ? err.message
+              : "Sorry, something went wrong while analyzing the image.",
           };
         }
         return next;
       });
     } finally {
       setIsStreaming(false);
+      setStatusText(null);
     }
   }
 
@@ -240,7 +246,7 @@ export default function ImageAnalysisPane({ model }: Props) {
                     <strong style={{ display: "block", marginBottom: 4 }}>
                       Prompt: {t.prompt}
                     </strong>
-                    <div>{t.response || (idx === turns.length - 1 && isStreaming ? "…" : "")}</div>
+                    <div>{t.response || (idx === turns.length - 1 && isStreaming ? (statusText ?? "…") : "")}</div>
                   </div>
                 </div>
               ))}

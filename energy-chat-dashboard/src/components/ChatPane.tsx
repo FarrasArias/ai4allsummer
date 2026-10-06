@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import ChatHistory from "./ChatHistory";
 import ChatInput from "./ChatInput";
 import EmptyState from "./EmptyState";
-import { streamChat, streamAgentChat, getRagDocuments, type InferenceMetrics, type AgentEvent } from "../api";
+import { ApiError, streamChat, streamAgentChat, getRagDocuments, type InferenceMetrics, type AgentEvent } from "../api";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
 
@@ -111,6 +111,10 @@ export default function ChatPane({
             const abort = streamAgentChat(
                 { prompt: text, model: activeModel },
                 (event: AgentEvent) => {
+                    if (event.type === "status") {
+                        setStatusText(event.text);
+                        return;
+                    }
                     if (event.type === "thinking") {
                         setWaitingForFirstDelta(false);
                         setStatusText("Agent is working…");
@@ -183,7 +187,9 @@ export default function ChatPane({
                 console.error(err);
                 setMessages((m) => [...m, {
                     role: "bot",
-                    text: "Sorry, something went wrong while generating a response.",
+                    text: err instanceof ApiError
+                        ? err.message
+                        : "Sorry, something went wrong while generating a response.",
                 }]);
             } finally {
                 setIsStreaming(false);
@@ -207,6 +213,7 @@ export default function ChatPane({
                     isStreaming={isStreaming}
                     thinkingMode={thinkingMode}
                     isWaitingForModel={waitingForFirstDelta}
+                    waitingLabel={statusText}
                 />
             ) : (
                 <EmptyState tab="chat" />

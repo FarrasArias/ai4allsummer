@@ -11,6 +11,40 @@ export function apiFetch(path: string, init: RequestInit = {}): Promise<Response
   return fetch(`${API_BASE}${path}`, { ...init, headers });
 }
 
+// An error whose message is meant for the user, e.g. "You already have a
+// request in progress" or a model error reported mid-stream.
+export class ApiError extends Error {}
+
+async function errorFrom(res: Response): Promise<ApiError> {
+  try {
+    const body = await res.json();
+    if (body?.error) return new ApiError(String(body.error));
+    if (body?.detail) return new ApiError(String(body.detail));
+  } catch {
+    /* not JSON */
+  }
+  return new ApiError(`Server error: ${res.status}`);
+}
+
+// Read an SSE response, passing each `data:` payload to onEvent. Buffers
+// across network chunks so an event split in two isn't dropped or misparsed.
+async function readEvents(res: Response, onEvent: (payload: any) => void): Promise<void> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() ?? "";
+    for (const part of parts) {
+      if (!part.startsWith("data:")) continue;
+      onEvent(JSON.parse(part.slice(5).trim()));
+    }
+  }
+}
+
 export function sse(url: string, onMessage: (data: any) => void, onError?: (e: any) => void) {
   const es = new EventSource(url, { withCredentials: false });
   es.onmessage = (evt) => {
@@ -92,17 +126,10 @@ export function streamChat(
     (files ?? []).forEach((f) => body.append("files", f));
 
     return apiFetch(`/api/chat`, { method: "POST", body }).then(async (res) => {
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
+    if (!res.ok) throw await errorFrom(res);
     let metrics: InferenceMetrics | undefined;
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      for (const line of chunk.split("\n\n")) {
-        if (!line.startsWith("data:")) continue;
-        const payload = JSON.parse(line.slice(5).trim());
-        if (payload.error) throw new Error(payload.error);
+    await readEvents(res, (payload) => {
+        if (payload.error) throw new ApiError(payload.error);
         if (payload.status) onStatus?.(payload.status);
         if (payload.delta) onDelta(payload.delta);
         if (payload.done && payload.inference_time_ms !== undefined) {
@@ -115,8 +142,7 @@ export function streamChat(
           };
           onComplete?.(metrics);
         }
-      }
-    }
+    });
     return metrics;
   });
 }
@@ -124,24 +150,19 @@ export function streamChat(
 export function streamImageAnalysis(
   { prompt, model, image }: { prompt: string; model: string; image: File },
   onDelta: (text: string) => void,
+  onStatus?: (text: string) => void,
 ) {
   const body = new FormData();
   body.append("prompt", prompt);
   body.append("model", model);
   body.append("image", image);
   return apiFetch(`/api/image/analyze`, { method: "POST", body }).then(async (res) => {
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      for (const line of chunk.split("\n\n")) {
-        if (!line.startsWith("data:")) continue;
-        const payload = JSON.parse(line.slice(5).trim());
-        if (payload.delta) onDelta(payload.delta);
-      }
-    }
+    if (!res.ok) throw await errorFrom(res);
+    await readEvents(res, (payload) => {
+      if (payload.error) throw new ApiError(payload.error);
+      if (payload.status) onStatus?.(payload.status);
+      if (payload.delta) onDelta(payload.delta);
+    });
   });
 }
 
@@ -328,6 +349,7 @@ export async function resetVibe(model: string) {
 // ── Coding Agent (claw-code-agent) — SSE streaming ──
 
 export type AgentEvent =
+  | { type: "status"; text: string }  // e.g. waiting in line for a turn
   | { type: "thinking" }
   | { type: "assistant"; content: string }
   | { type: "tool_start"; tool: string; args: Record<string, any> }
@@ -358,7 +380,7 @@ export function streamAgentChat(
   })
     .then(async (res) => {
       if (!res.ok || !res.body) {
-        onError?.(`Server error: ${res.status}`);
+        onError?.((await errorFrom(res)).message);
         return;
       }
       const reader = res.body.getReader();
@@ -434,7 +456,7 @@ export function streamWebChat(
   })
     .then(async (res) => {
       if (!res.ok || !res.body) {
-        onError?.(`Server error: ${res.status}`);
+        onError?.((await errorFrom(res)).message);
         return;
       }
       const reader = res.body.getReader();

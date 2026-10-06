@@ -23,6 +23,7 @@ type ChatEntry =
   | { kind: "tool_result"; tool: string; ok: boolean; content: string }
   | { kind: "thinking" }
   | { kind: "status"; text: string }
+  | { kind: "queue"; text: string }  // waiting for a turn; dropped once the agent starts
   | { kind: "error"; text: string };
 
 type Props = { model?: string };
@@ -72,7 +73,14 @@ export default function VibeCodingPane({ model }: Props) {
     const abort = streamAgentChat(
       { prompt: trimmed, model: activeModel },
       (ev: AgentEvent) => {
+        if (ev.type !== "status") {
+          setEntries((prev) => prev.some((e) => e.kind === "queue") ? prev.filter((e) => e.kind !== "queue") : prev);
+        }
         switch (ev.type) {
+          case "status":
+            setEntries((prev) => [...prev.filter((e) => e.kind !== "queue"), { kind: "queue", text: ev.text }]);
+            break;
+
           case "thinking":
             setEntries((prev) => [...prev, { kind: "thinking" }]);
             break;
@@ -305,6 +313,7 @@ function EntryRow({ entry }: { entry: ChatEntry }) {
       return <ThinkingIndicator />;
 
     case "status":
+    case "queue":
       return (
         <div style={{ fontSize: 12, color: "var(--color-accent, #1b6e28)", fontWeight: 500, textAlign: "center", padding: "4px 0" }}>
           {entry.text}

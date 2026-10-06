@@ -9,6 +9,9 @@ type Props = {
   isStreaming?: boolean;
   thinkingMode?: "fast" | "deep";
   isWaitingForModel?: boolean;
+  // What's happening before the first words arrive, e.g. "Waiting in line —
+  // 1 ahead of you"; without one, assume the model is loading
+  waitingLabel?: string | null;
 };
 
 // Format milliseconds — always show ms for precise research data
@@ -32,7 +35,7 @@ const THINKING_MESSAGES = [
   "Composing final answer...",
 ];
 
-export default function ChatHistory({ messages, isStreaming = false, thinkingMode = "fast", isWaitingForModel = false }: Props) {
+export default function ChatHistory({ messages, isStreaming = false, thinkingMode = "fast", isWaitingForModel = false, waitingLabel = null }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [thinkingMessageIndex, setThinkingMessageIndex] = useState(0);
 
@@ -141,7 +144,7 @@ export default function ChatHistory({ messages, isStreaming = false, thinkingMod
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span className="model-loading-spinner" style={{ fontSize: 16 }}>⟳</span>
                     <span style={{ fontSize: 13, fontStyle: "italic", opacity: 0.9 }}>
-                      Loading model into GPU…
+                      {waitingLabel ?? "Loading model into GPU…"}
                     </span>
                   </div>
                 ) : thinkingMode === "deep" ? (
