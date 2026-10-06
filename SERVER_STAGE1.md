@@ -33,7 +33,7 @@ measured per prompt the same way as today (plus one baseline fix, D11).
 
 ## Decisions
 
-D1–D12 approved as recommended on 2026-10-05; the rest of the brief assumes them. D13 is open.
+All approved on 2026-10-05 (D1–D12 as recommended, D13 added later); the rest of the brief assumes them.
 
 | # | Decision | Recommendation |
 |---|---|---|
@@ -49,7 +49,7 @@ D1–D12 approved as recommended on 2026-10-05; the rest of the brief assumes th
 | D10 | Deleting a user | Account and sessions removed; their data folder is **moved to `userdata/_deleted/`**, not erased. Hard deletion stays a manual step. |
 | D11 | Idle baseline for per-prompt energy | Today the meter takes the GPU reading at the moment a prompt starts as "idle". With a queue, prompts start right after each other while the GPU is still busy, so that reading is high and energy is under-counted. **Use the idle baseline tracked by the background thread while nothing runs** (see §5). This changes how numbers are computed — flagging it because it's research data. |
 | D12 | Agent mode at the Mac while online users are active | Agent runs make many model calls with tool work in between, and are metered as one block. **In stage 1 an agent run holds the queue for its whole run** (clean energy, online users wait and see "The host is running an agent task"). Per-call turns come with stage 2. Agent is usable only at the Mac — an admin logged in online doesn't get it either. |
-| D13 | **Open** — the Code tab online | Found in step 2: the Code tab (`VibeCodingPane`) runs the **agent** (`/api/agent/chat`, shell access), not the text-only `/api/vibe/code`, which no screen calls. So locking Agent online also locks the Code tab. Options: hide Code online, or have it use the text-only code assistant online and the agent only at the Mac. |
+| D13 | The Code tab online | Found in step 2: the Code tab (`VibeCodingPane`) runs the **agent** (`/api/agent/chat`, shell access), not the text-only `/api/vibe/code`, which no screen calls. So locking Agent online also locks the Code tab. **Decided 2026-10-05: hide the Code tab online** (step 6); at the Mac it stays the full agent. |
 
 ---
 
@@ -390,6 +390,7 @@ Backend: `require_local` on agent, test runner and `conduct/open` → `403 "Avai
 host Mac"`. Frontend (from `GET /api/me` capabilities):
 
 - Chat input: **Agent** pill hidden
+- Sidebar: **Code** tab hidden (it runs the agent — D13)
 - Sidebar: **Testing** tab hidden
 - Settings → models: pull / delete / create / auto-preload hidden for non-admins
 - Conduct page: "Open in editor" / "Reveal" buttons hidden
