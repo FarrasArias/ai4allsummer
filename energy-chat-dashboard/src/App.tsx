@@ -214,8 +214,19 @@ export default function App() {
                 setModeDefaults(defaults);
                 const chatDefaults = defaults.chat;
                 if (chatDefaults) {
-                    if (!fastModel && chatDefaults.fast) setFastModel(chatDefaults.fast);
-                    if (!deepModel && chatDefaults.thinking) setDeepModel(chatDefaults.thinking);
+                    // Only adopt a preset that is actually pulled; otherwise leave it
+                    // unset so ChatPane falls back to the chat default model. A preset
+                    // persisted from an earlier run is dropped while it's not installed.
+                    if (chatDefaults.fast_installed) {
+                        if (!fastModel && chatDefaults.fast) setFastModel(chatDefaults.fast);
+                    } else if (fastModel === chatDefaults.fast) {
+                        setFastModel(null);
+                    }
+                    if (chatDefaults.thinking_installed) {
+                        if (!deepModel && chatDefaults.thinking) setDeepModel(chatDefaults.thinking);
+                    } else if (deepModel === chatDefaults.thinking) {
+                        setDeepModel(null);
+                    }
                 }
             })
             .catch((err) => console.error("Failed to load mode defaults", err));
