@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { Grade } from "../energyGrade";
 import type { ModeTab } from "./Sidebar";
 import type { ConductPhase } from "../api";
 import LogPopover from "./LogPopover";
@@ -11,7 +12,7 @@ type Props = {
     responseCount: number;
     fileCount: number;
     sessionTotalWh?: number | null;
-    last2AvgWh?: number | null;
+    grade: Grade;
 
     onClearChat: () => void;
     onCopyResponse: () => void;
@@ -118,15 +119,6 @@ const TAB_LABELS: Record<string, string> = {
     testing: "Testing",
 };
 
-function computeGrade(last2AvgWh?: number | null): string {
-    const v = typeof last2AvgWh === "number" ? last2AvgWh : 0;
-    if (v <= 0.05) return "A";
-    if (v <= 0.15) return "B";
-    if (v <= 0.5) return "C";
-    if (v <= 1.5) return "D";
-    return "E";
-}
-
 export default function HeaderBar({
     tab,
     chatName,
@@ -135,7 +127,7 @@ export default function HeaderBar({
     responseCount,
     fileCount,
     sessionTotalWh,
-    last2AvgWh,
+    grade,
     onClearChat,
     onCopyResponse,
     onSaveResponse,
@@ -149,7 +141,6 @@ export default function HeaderBar({
 }: Props) {
     const [logOpen, setLogOpen] = useState(false);
     const totalWh = typeof sessionTotalWh === "number" ? sessionTotalWh : 0;
-    const grade = computeGrade(last2AvgWh);
     const displayTitle = chatName || TAB_LABELS[tab] || "New conversation";
 
     return (

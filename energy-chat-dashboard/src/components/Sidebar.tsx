@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import type { Grade } from "../energyGrade";
 
 /* ── Types ── */
 export type ModeTab = "chat" | "vibe" | "web" | "image" | "image_gen" | "conduct" | "about" | "settings" | "testing";
@@ -18,7 +19,6 @@ type ConvItem = {
     updated_at?: number;
 };
 
-type Grade = "A" | "B" | "C" | "D" | "E";
 
 type ContextMenuState = {
     visible: boolean;
@@ -49,7 +49,7 @@ type Props = {
     latestPromptWh?: number | null;
     sessionTotalWh?: number | null;
     promptCount?: number;
-    last2AvgWh?: number | null;
+    grade: Grade;
 
     /* Theme */
     theme?: ThemeChoice;
@@ -235,16 +235,6 @@ const MODE_LABELS: Record<string, string> = {
     about: "About Uness",
 };
 
-function computeGrade(last2AvgWh?: number | null, promptCount?: number): Grade {
-    if (!promptCount || promptCount < 5) return "A";
-    const v = typeof last2AvgWh === "number" ? last2AvgWh : 0;
-    if (v <= 0.05) return "A";
-    if (v <= 0.15) return "B";
-    if (v <= 0.5) return "C";
-    if (v <= 1.5) return "D";
-    return "E";
-}
-
 const FILTER_ALL = "all";
 const FILTER_STARRED = "starred";
 const FILTER_KEYS = [
@@ -286,7 +276,7 @@ export default function Sidebar({
     latestPromptWh,
     sessionTotalWh,
     promptCount,
-    last2AvgWh,
+    grade,
     theme = "system",
     onThemeChange,
     onSearch,
@@ -321,7 +311,6 @@ export default function Sidebar({
     }
 
     const totalWh = typeof sessionTotalWh === "number" ? sessionTotalWh : 0;
-    const grade = computeGrade(last2AvgWh, promptCount);
 
     /* ── Build conversation list ── */
     const filteredChats: ConvItem[] = chats

@@ -41,6 +41,7 @@ import {
 
 import StudyControls, { loadPersistedStudySettings } from "./components/StudyControls";
 import { useSession } from "./session";
+import { computeGrade } from "./energyGrade";
 import type { StudySettings, PromptMetric } from "./components/StudyControls";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
@@ -164,6 +165,8 @@ export default function App() {
         promptWhHistory.length > 0
             ? promptWhHistory.reduce((sum, v) => sum + v, 0) / promptWhHistory.length
             : null;
+    // One grade for the sidebar and the header badge (energyGrade.ts)
+    const grade = computeGrade(last2AvgWh, promptMetrics.length);
 
     const defaultLogTitle =
         messages.find((m) => m.role === "user")?.text.trim().split(/\s+/).slice(0, 4).join(" ") ||
@@ -570,7 +573,7 @@ export default function App() {
                     latestPromptWh={latestPromptWh}
                     sessionTotalWh={sessionTotalWh}
                     promptCount={promptMetrics.length}
-                    last2AvgWh={last2AvgWh}
+                    grade={grade}
                     theme={theme}
                     onThemeChange={setTheme}
                     onSearch={handleSearch}
@@ -589,7 +592,7 @@ export default function App() {
                         responseCount={botMessages.length}
                         fileCount={fileCount}
                         sessionTotalWh={sessionTotalWh}
-                        last2AvgWh={last2AvgWh}
+                        grade={grade}
                         onClearChat={handleClearChat}
                         onCopyResponse={handleCopyLastResponse}
                         onSaveResponse={handleSaveLastResponse}
