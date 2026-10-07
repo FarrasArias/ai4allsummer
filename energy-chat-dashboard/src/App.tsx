@@ -41,7 +41,7 @@ import {
 
 import StudyControls, { loadPersistedStudySettings } from "./components/StudyControls";
 import { useSession } from "./session";
-import { computeGrade } from "./energyGrade";
+import { GRADE_WINDOW, computeGrade } from "./energyGrade";
 import type { StudySettings, PromptMetric } from "./components/StudyControls";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
@@ -161,12 +161,12 @@ export default function App() {
     // activeModel for display: use whatever ChatPane last reported, else the default
     const activeModel = currentModel || chatModeModel;
 
-    const last2AvgWh =
+    const recentAvgWh =
         promptWhHistory.length > 0
             ? promptWhHistory.reduce((sum, v) => sum + v, 0) / promptWhHistory.length
             : null;
     // One grade for the sidebar and the header badge (energyGrade.ts)
-    const grade = computeGrade(last2AvgWh, promptMetrics.length);
+    const grade = computeGrade(recentAvgWh, promptMetrics.length);
 
     const defaultLogTitle =
         messages.find((m) => m.role === "user")?.text.trim().split(/\s+/).slice(0, 4).join(" ") ||
@@ -268,7 +268,7 @@ export default function App() {
                 const prevSeen = lastPromptWhRef.current;
                 if (latestWh > 0 && latestWh !== prevSeen) {
                     const next = [...prev, latestWh];
-                    if (next.length > 2) next.shift();
+                    if (next.length > GRADE_WINDOW) next.shift();
                     lastPromptWhRef.current = latestWh;
                     return next;
                 }
