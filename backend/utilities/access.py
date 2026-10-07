@@ -10,8 +10,8 @@ online, not local. See SERVER_STAGE1.md §1.
 
 AccessMiddleware is a plain ASGI middleware (not BaseHTTPMiddleware) so it
 doesn't interfere with streaming responses or client-disconnect handling.
-Every /api route needs a user unless listed in OPEN_PATHS — new routes are
-protected by default. Admin and local-only routes add `require_admin` /
+Every /api route needs a user unless listed in OPEN_PATHS / OPEN_PREFIXES —
+new routes are protected by default. Admin and local-only routes add `require_admin` /
 `require_local` as dependencies.
 """
 
@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Callable, Optional
 
 from fastapi import HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -39,8 +41,12 @@ _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _LOOPBACK_CLIENTS = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 
-# /api paths reachable without a user
-OPEN_PATHS = {"/api/health"}
+SESSION_COOKIE = "uness_session"
+
+# /api paths reachable without a user. Under /api/auth/, endpoints that do
+# need one (changing your password) ask for it themselves.
+OPEN_PATHS = {"/api/health", "/api/me"}
+OPEN_PREFIXES = ("/api/auth/",)
 
 # Non-API paths only served on the local listener (FastAPI's API explorer)
 _LOCAL_ONLY_PATHS = {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}
@@ -62,10 +68,6 @@ class User:
     @property
     def is_admin(self) -> bool:
         return self.role == "admin"
-
-
-# Stand-in until accounts exist (SERVER_STAGE1.md §2): the local owner
-OWNER = User(id=1, username=OWNER_NAME, role="admin", is_owner=True)
 
 
 def _hostname(host_header: str) -> str:
@@ -96,9 +98,28 @@ def _with_security_headers(send: Send) -> Send:
     return wrapped
 
 
+def _cookie(headers: Headers, name: str) -> Optional[str]:
+    for part in headers.get("cookie", "").split(";"):
+        key, _, value = part.strip().partition("=")
+        if key == name:
+            return value
+    return None
+
+
 class AccessMiddleware:
-    def __init__(self, app: ASGIApp) -> None:
+    """`owner()` returns the owner account; `session_user(token)` the user a
+    session cookie belongs to (or None). Passed in so this module doesn't
+    depend on the accounts store."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        owner: Callable[[], User],
+        session_user: Callable[[Optional[str]], Optional[User]],
+    ) -> None:
         self.app = app
+        self.owner = owner
+        self.session_user = session_user
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -120,7 +141,17 @@ class AccessMiddleware:
 
         state = scope.setdefault("state", {})
         state["is_local"] = is_local
-        state["user"] = OWNER if is_local else None
+        state["is_public"] = port == PUBLIC_PORT
+        # Only Funnel connects to the public listener, so its X-Forwarded-For
+        # can be trusted there (login throttling uses it); nowhere else
+        forwarded = headers.get("x-forwarded-for", "") if port == PUBLIC_PORT else ""
+        state["client_ip"] = forwarded.split(",")[0].strip() or client
+        if is_local:
+            state["user"] = self.owner()
+        else:
+            # Session lookup is a quick SQLite read; done off the event loop
+            token = _cookie(headers, SESSION_COOKIE)
+            state["user"] = await run_in_threadpool(self.session_user, token) if token else None
 
         if scope["method"] not in _SAFE_METHODS and headers.get(CLIENT_HEADER) != "1":
             await reject(403, "Missing X-Uness-Client header")
@@ -130,7 +161,8 @@ class AccessMiddleware:
         if path in _LOCAL_ONLY_PATHS and not is_local:
             await reject(404, "Not found")
             return
-        if path.startswith("/api/") and path not in OPEN_PATHS and state["user"] is None:
+        is_open = path in OPEN_PATHS or path.startswith(OPEN_PREFIXES)
+        if path.startswith("/api/") and not is_open and state["user"] is None:
             await reject(401, "Login required")
             return
 
@@ -142,6 +174,10 @@ def current_user(request: Request) -> User:
     if user is None:  # unreachable behind AccessMiddleware, kept as a guard
         raise HTTPException(status_code=401, detail="Login required")
     return user
+
+
+def session_token(request: Request) -> Optional[str]:
+    return _cookie(Headers(scope=request.scope), SESSION_COOKIE)
 
 
 def require_admin(request: Request) -> None:

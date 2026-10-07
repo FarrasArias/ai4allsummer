@@ -71,18 +71,22 @@ import anyio
 import fitz  # PyMuPDF (kept for compatibility. TODO: Remove?)
 import ollama
 import requests
-from fastapi import FastAPI, UploadFile, File, Form, Depends
+from fastapi import FastAPI, UploadFile, File, Form, Depends, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
+from utilities import accounts
 from utilities.access import (
     AccessMiddleware,
     CLIENT_HEADER,
+    PUBLIC_HOST,
+    SESSION_COOKIE,
     User,
     current_user,
     require_admin,
     require_local,
+    session_token,
 )
 from utilities.inference_queue import QUEUE, QueueBusy, QueueTimeout, queued_response
 from utilities import energy
@@ -201,12 +205,13 @@ async def _lifespan(_app):
     # Sync endpoints, and model streams while they generate, each borrow a
     # worker thread; the default 40 is tight once several people use the app.
     anyio.to_thread.current_default_thread_limiter().total_tokens = 200
+    accounts.init()
     energy.start_sampler()
     yield
 
 
 app = FastAPI(title="React <> Python API (Ollama)", lifespan=_lifespan)
-app.add_middleware(AccessMiddleware)
+app.add_middleware(AccessMiddleware, owner=accounts.owner, session_user=accounts.user_for_session)
 
 # The frontend is served from the same origin (directly, or through Vite's
 # dev proxy), so no CORS by default. A wildcard origin with credentials would
@@ -229,6 +234,11 @@ def _upload_too_large(_request, exc: UploadTooLarge):
 
 @app.exception_handler(InvalidName)
 def _invalid_name(_request, exc: InvalidName):
+    return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.exception_handler(accounts.AccountError)
+def _account_error(_request, exc: accounts.AccountError):
     return JSONResponse({"error": str(exc)}, status_code=400)
 
 
@@ -547,6 +557,11 @@ def web_chat_endpoint(
     - The final done event carries per-prompt energy metrics
     """
     ticket = QUEUE.enter(user.id, "a web search")
+    try:
+        accounts.count_web_prompt(user)
+    except BaseException:
+        QUEUE.release(ticket)
+        raise
 
     # Persist uploads (documents only — images are handled exclusively by the
     # Image tab, per the HITL energy policy); they're indexed once it's our turn
@@ -1185,6 +1200,161 @@ def analytics_power(scope: str = "mine", user: User = Depends(current_user)):
 # -----------------------------
 @app.get("/api/health")
 def health():
+    return {"ok": True}
+
+
+# -----------------------------
+# Accounts (SERVER_STAGE1.md §2)
+# -----------------------------
+def _user_json(user: User) -> dict:
+    return {"id": user.id, "username": user.username, "role": user.role, "is_owner": user.is_owner}
+
+
+def _with_session(response: JSONResponse, request: Request, token: str) -> JSONResponse:
+    # Secure only when the browser reached us over HTTPS (Funnel terminates
+    # TLS and says so); testing the public port over plain http still works
+    https = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    response.set_cookie(
+        SESSION_COOKIE, token, max_age=accounts.SESSION_DAYS * 86400,
+        httponly=True, samesite="lax", secure=request.state.is_public and https, path="/",
+    )
+    return response
+
+
+def _link(request: Request, path: str) -> str:
+    """A link to send someone: on the public address when there is one, since
+    the admin making it may be sitting at the Mac."""
+    if PUBLIC_HOST:
+        return f"https://{PUBLIC_HOST}{path}"
+    return str(request.base_url).rstrip("/") + path
+
+
+@app.get("/api/me")
+def me(request: Request):
+    """Who the app is talking to and what they may use. Open: the frontend
+    asks this first to decide between the login screen and the app."""
+    user = request.state.user
+    if user is None:
+        return {"user": None, "local": False}
+    local = request.state.is_local
+    return {
+        "user": _user_json(user),
+        "local": local,
+        "has_password": accounts.owner_has_password() if user.is_owner else True,
+        "capabilities": {
+            # Agent mode and the Code tab run shell commands on this Mac (D13)
+            "agent": local,
+            "code_tab": local,
+            "test_runner": local,
+            "conduct_open": local,
+            "manage_models": user.is_admin,
+            "manage_users": user.is_admin,
+        },
+    }
+
+
+@app.post("/api/auth/login")
+def auth_login(payload: dict, request: Request):
+    if request.state.is_local:
+        return JSONResponse({"error": "No sign-in is needed on this Mac."}, status_code=400)
+    user, token = accounts.login(payload.get("username", ""), payload.get("password", ""), request.state.client_ip)
+    return _with_session(JSONResponse({"ok": True, "user": _user_json(user)}), request, token)
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request):
+    accounts.logout(session_token(request))
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
+
+
+@app.get("/api/auth/invite/{token}")
+def auth_invite_info(token: str):
+    info = accounts.describe_token(token, "invite")
+    if info is None:
+        return JSONResponse({"error": "This invite link has expired or was already used."}, status_code=404)
+    return info
+
+
+@app.post("/api/auth/invite/{token}")
+def auth_invite_accept(token: str, payload: dict, request: Request):
+    user, session = accounts.accept_invite(token, payload.get("username", ""), payload.get("password", ""))
+    return _with_session(JSONResponse({"ok": True, "user": _user_json(user)}), request, session)
+
+
+@app.get("/api/auth/reset/{token}")
+def auth_reset_info(token: str):
+    info = accounts.describe_token(token, "reset")
+    if info is None:
+        return JSONResponse({"error": "This reset link has expired or was already used."}, status_code=404)
+    return info
+
+
+@app.post("/api/auth/reset/{token}")
+def auth_reset_accept(token: str, payload: dict, request: Request):
+    user, session = accounts.accept_reset(token, payload.get("password", ""))
+    return _with_session(JSONResponse({"ok": True, "user": _user_json(user)}), request, session)
+
+
+@app.post("/api/auth/password")
+def auth_change_password(payload: dict, request: Request, user: User = Depends(current_user)):
+    # At the Mac the owner sets or changes theirs without the current one;
+    # everyone else has to prove they know it
+    current = None if request.state.is_local and user.is_owner else payload.get("current_password", "")
+    session = accounts.change_password(user, payload.get("new_password", ""), current)
+    response = JSONResponse({"ok": True})
+    return response if request.state.is_local else _with_session(response, request, session)
+
+
+def _not_self(user_id: int, user: User) -> None:
+    if user_id == user.id:
+        raise accounts.AccountError("You can't change your own account here.")
+
+
+@app.get("/api/admin/users", dependencies=[Depends(require_admin)])
+def admin_users():
+    return {"users": accounts.list_users()}
+
+
+@app.post("/api/admin/users/{user_id}", dependencies=[Depends(require_admin)])
+def admin_update_user(user_id: int, payload: dict, user: User = Depends(current_user)):
+    _not_self(user_id, user)
+    if "role" in payload:
+        accounts.set_role(user_id, payload["role"])
+    if "status" in payload:
+        accounts.set_status(user_id, payload["status"])
+    return {"ok": True}
+
+
+@app.delete("/api/admin/users/{user_id}", dependencies=[Depends(require_admin)])
+def admin_delete_user(user_id: int, user: User = Depends(current_user)):
+    _not_self(user_id, user)
+    accounts.delete_user(user_id)
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{user_id}/reset-link", dependencies=[Depends(require_admin)])
+def admin_reset_link(user_id: int, request: Request, user: User = Depends(current_user)):
+    _not_self(user_id, user)
+    token = accounts.create_reset(user_id, user)
+    return {"url": _link(request, f"/reset/{token}"), "expires_hours": accounts.RESET_HOURS}
+
+
+@app.get("/api/admin/invites", dependencies=[Depends(require_admin)])
+def admin_invites():
+    return {"invites": accounts.list_invites()}
+
+
+@app.post("/api/admin/invites", dependencies=[Depends(require_admin)])
+def admin_create_invite(payload: dict, request: Request, user: User = Depends(current_user)):
+    token = accounts.create_invite(user, payload.get("role", "user"), payload.get("note", ""))
+    return {"url": _link(request, f"/invite/{token}"), "expires_days": accounts.INVITE_DAYS}
+
+
+@app.delete("/api/admin/invites/{invite_id}", dependencies=[Depends(require_admin)])
+def admin_revoke_invite(invite_id: int):
+    accounts.revoke_invite(invite_id)
     return {"ok": True}
 
 

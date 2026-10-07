@@ -249,6 +249,20 @@ To log in from elsewhere, the owner sets a password once under Settings → Acco
 `GET /api/admin/users`, `POST /api/admin/users/{id}` (role/status), `DELETE /api/admin/users/{id}`,
 `POST /api/admin/users/{id}/reset-link`, `GET/POST/DELETE /api/admin/invites`.
 
+### As built (step 4)
+
+- `utilities/accounts.py`; `backend/serve.py` runs both listeners (one signal handler stops both).
+- `users` has an `is_owner` column instead of `data_dir` — `paths_for(user)` derives folders.
+- `GET /api/me` always answers 200 (`user: null` when signed out) with `local`, `has_password`
+  and `capabilities` (`agent`, `code_tab`, `test_runner`, `conduct_open`, `manage_models`,
+  `manage_users`) for the frontend to hide what's locked.
+- Login on the local listener is refused ("No sign-in is needed on this Mac").
+- Changing your password signs you out everywhere else and re-issues your own session.
+- Admin endpoints refuse to act on the caller's own account.
+- The middleware gets `owner()` and `session_user()` passed in, so `access.py` doesn't depend on
+  the account store. The owner is cached in memory (asked for on every local request).
+- The D4 web cap is counted once the request is in line, so a 429 doesn't use it up.
+
 ---
 
 ## 3. Per-user data
