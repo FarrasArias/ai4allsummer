@@ -12,6 +12,7 @@ import AboutPane from "./components/AboutPane";
 import TestRunnerPane from "./components/TestRunnerPane";
 import AccountPanel from "./components/AccountPanel";
 import UsersPanel from "./components/UsersPanel";
+import EnergyPane from "./components/EnergyPane";
 import { TipProvider } from "./components/TipContext";
 import {
     streamPower,
@@ -219,8 +220,9 @@ export default function App() {
 
     // Online, the Code tab (it runs the agent) and the test runner are locked
     useEffect(() => {
-        if ((tab === "vibe" && !caps.code_tab) || (tab === "testing" && !caps.test_runner)) setTab("chat");
-    }, [tab, caps.code_tab, caps.test_runner]);
+        if ((tab === "vibe" && !caps.code_tab) || (tab === "testing" && !caps.test_runner) ||
+            (tab === "energy" && !caps.manage_users)) setTab("chat");
+    }, [tab, caps.code_tab, caps.test_runner, caps.manage_users]);
 
     // Load mode defaults from backend
     useEffect(() => {
@@ -579,6 +581,7 @@ export default function App() {
                     onSearch={handleSearch}
                     showConductTools={showConductTools}
                     showCodeTab={caps.code_tab}
+                    showEnergyReport={caps.manage_users}
                 />
 
                 {/* ── Main Content ── */}
@@ -671,7 +674,7 @@ export default function App() {
                         <div className="pane-scroll">
                             <div style={{ display: "grid", gap: 16, marginBottom: 16 }}>
                                 <AccountPanel />
-                                {caps.manage_users && <UsersPanel />}
+                                {caps.manage_users && <UsersPanel onOpenEnergy={() => setTab("energy")} />}
                             </div>
                             <ModelManagerPane
                                 canManageModels={caps.manage_models}
@@ -733,6 +736,12 @@ export default function App() {
                                     onToggleCollapsed={() => setStudyCollapsed(v => !v)}
                                 />
                             </div>
+                        </div>
+                    )}
+
+                    {tab === "energy" && caps.manage_users && (
+                        <div className="pane-scroll">
+                            <EnergyPane />
                         </div>
                     )}
 

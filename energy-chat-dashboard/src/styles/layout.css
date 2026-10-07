@@ -2042,3 +2042,220 @@ button, .btn {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+
+/* ═══════════════════════════════════════════════
+   ENERGY — admin report page
+   ═══════════════════════════════════════════════ */
+/* minmax(0, 1fr): grid items otherwise refuse to shrink below their
+   content, and the chart would never learn its real width on a phone */
+.energy-pane {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    max-width: 1040px;
+}
+
+.energy-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.energy-periods {
+    display: inline-flex;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.energy-periods button {
+    border: none;
+    background: transparent;
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--font-size-md);
+    padding: 6px 12px;
+    cursor: pointer;
+}
+
+.energy-periods button + button {
+    border-left: 1px solid var(--color-border);
+}
+
+.energy-periods button:hover {
+    background: var(--hover-bg);
+}
+
+.energy-periods button.active {
+    background: var(--color-accent-soft);
+    font-weight: 600;
+}
+
+.energy-download {
+    font-size: var(--font-size-md);
+    color: var(--color-accent);
+}
+
+.energy-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    transition: opacity 0.15s;
+}
+
+.energy-refreshing {
+    opacity: 0.55;
+}
+
+.energy-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 16px 32px;
+}
+
+.energy-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-dim);
+}
+
+.energy-hero-value {
+    font-size: 48px;
+    font-weight: 600;
+    line-height: 1.1;
+}
+
+.energy-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 32px;
+}
+
+.energy-tile-value {
+    font-size: var(--font-size-xl);
+    font-weight: 600;
+}
+
+.energy-h {
+    margin: 0;
+}
+
+.energy-sub,
+.energy-note {
+    margin: 2px 0 8px;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-dim);
+}
+
+.energy-note {
+    margin: 0;
+    line-height: 1.5;
+}
+
+.energy-chart {
+    position: relative;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.energy-chart svg {
+    display: block;
+    outline: none;
+}
+
+.energy-chart svg:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
+.energy-bar {
+    fill: var(--chart-mark);
+    transition: opacity 0.1s;
+}
+
+.energy-bar.dim {
+    opacity: 0.45;
+}
+
+.energy-grid {
+    stroke: var(--color-border-subtle);
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+}
+
+.energy-baseline {
+    stroke: var(--color-border);
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+}
+
+.energy-axis {
+    fill: var(--color-text-dim);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.energy-tooltip {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    display: grid;
+    gap: 2px;
+    padding: 6px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-panel);
+    box-shadow: var(--shadow-md);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-dim);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.energy-tooltip strong {
+    color: var(--color-text);
+    font-size: var(--font-size-md);
+}
+
+.energy-table-toggle {
+    margin-top: 8px;
+    font-size: var(--font-size-md);
+}
+
+.energy-table-toggle summary {
+    cursor: pointer;
+    color: var(--color-text-dim);
+}
+
+.energy-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.energy-share {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.energy-share-track {
+    width: 80px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--color-border-subtle);
+    overflow: hidden;
+}
+
+.energy-share-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--chart-mark);
+}
+
+.energy-link {
+    justify-self: start;
+}

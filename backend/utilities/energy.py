@@ -28,7 +28,9 @@ import statistics
 import threading
 import time
 from collections import deque
-from datetime import date
+import csv
+import io
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -143,7 +145,8 @@ class EnergyMeter:
 
         # No readings means metering is unavailable on this machine: report
         # 0 Wh to the user as before, but don't write it into the history
-        _record(self.user.username, self.model, self.mode, energy_wh, write=bool(self.samples))
+        _record(self.user.username, self.model, self.mode, energy_wh, inference_time_ms,
+                write=bool(self.samples))
         return energy_wh, inference_time_ms
 
 
@@ -175,7 +178,7 @@ def _today_totals() -> dict[str, float]:
     return _today["by_user"]
 
 
-def _record(username: str, model: str, mode: str, energy_wh: float, write: bool) -> None:
+def _record(username: str, model: str, mode: str, energy_wh: float, ms: int, write: bool) -> None:
     with _lock:
         totals = _sessions.setdefault(username, {"latest": 0.0, "session": 0.0})
         totals["latest"] = energy_wh
@@ -191,6 +194,7 @@ def _record(username: str, model: str, mode: str, energy_wh: float, write: bool)
             "model": model,
             "mode": mode,
             "user": username,
+            "ms": ms,
         })
         try:
             REPORTS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -225,3 +229,95 @@ def history(user: Optional[User]) -> list[dict]:
     if user is None:
         return entries
     return [e for e in entries if _entry_user(e) == user.username]
+
+
+# -- the admin Energy page ---------------------------------------------------------------
+
+def _rows(entries: list) -> list[dict]:
+    rows = []
+    for e in entries:
+        stamp = str(e.get("date", ""))
+        if len(stamp) < 10:
+            continue
+        rows.append({
+            "date": stamp,
+            "day": stamp[:10],
+            "user": _entry_user(e),
+            "mode": e.get("mode") or "unknown",
+            "model": e.get("model") or "unknown",
+            "wh": float(e.get("power", 0) or 0),
+            "ms": e.get("ms"),
+        })
+    return rows
+
+
+def _totals(rows: list[dict], key: str) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for r in rows:
+        t = out.setdefault(r[key], {"prompts": 0, "wh": 0.0, "last": None})
+        t["prompts"] += 1
+        t["wh"] += r["wh"]
+        t["last"] = max(t["last"] or "", r["date"])
+    return out
+
+
+def report(days: Optional[int], usernames: list[str]) -> dict:
+    """Totals for the last `days` days (all time when None): overall, per
+    person, per mode, per model and per day. `usernames` are the current
+    accounts, so people with no prompts yet are listed too."""
+    today = date.today()
+    start = today - timedelta(days=days - 1) if days else None
+    rows = [r for r in _rows(history(None)) if not start or r["day"] >= start.isoformat()]
+
+    people = _totals(rows, "user")
+    for name in usernames:
+        people.setdefault(name, {"prompts": 0, "wh": 0.0, "last": None})
+
+    first = start or (date.fromisoformat(min(r["day"] for r in rows)) if rows else today)
+    per_day = _totals(rows, "day")
+    day_list = []
+    d = first
+    while d <= today:
+        t = per_day.get(d.isoformat(), {"prompts": 0, "wh": 0.0})
+        day_list.append({"day": d.isoformat(), "prompts": t["prompts"], "wh": t["wh"]})
+        d += timedelta(days=1)
+
+    def listed(groups: dict[str, dict], name: str) -> list[dict]:
+        items = [{name: k, "prompts": v["prompts"], "wh": v["wh"], "last": v.get("last")} for k, v in groups.items()]
+        return sorted(items, key=lambda i: (-i["wh"], i[name]))
+
+    people_list = listed(people, "user")
+    for p in people_list:
+        p["deleted"] = p["user"] not in usernames
+    return {
+        "from": first.isoformat(),
+        "to": today.isoformat(),
+        "totals": {
+            "wh": sum(r["wh"] for r in rows),
+            "prompts": len(rows),
+            "people_active": sum(1 for p in people.values() if p["prompts"]),
+            "people": len(usernames),
+        },
+        "people": people_list,
+        "modes": listed(_totals(rows, "mode"), "mode"),
+        "models": listed(_totals(rows, "model"), "model"),
+        "days": day_list,
+    }
+
+
+def _cell(value) -> str:
+    # A cell starting with = + - @ is run as a formula by spreadsheet apps.
+    # Model names arrive from the browser, so neutralise them.
+    text = "" if value is None else str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+def csv_text() -> str:
+    """Every recorded prompt, oldest first, for analysis elsewhere."""
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["date", "user", "mode", "model", "energy_wh", "duration_ms"])
+    for r in sorted(_rows(history(None)), key=lambda r: r["date"]):
+        writer.writerow([r["date"], _cell(r["user"]), _cell(r["mode"]), _cell(r["model"]),
+                         f"{r['wh']:.9f}", "" if r["ms"] is None else r["ms"]])
+    return out.getvalue()

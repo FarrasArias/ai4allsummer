@@ -103,6 +103,7 @@ function TabIcon({ tab }: { tab: ModeTab }) {
         case "about": return <IconInfo />;
         case "settings": return <IconSettings />;
         case "testing": return <IconTest />;
+        case "energy": return <IconBolt />;
         default: return <IconChat />;
     }
 }
@@ -117,6 +118,7 @@ const TAB_LABELS: Record<string, string> = {
     about: "About Uness",
     settings: "Settings",
     testing: "Testing",
+    energy: "Energy report",
 };
 
 export default function HeaderBar({

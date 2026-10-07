@@ -37,6 +37,9 @@
     --color-border: #E5E7EB;
     --color-border-subtle: #F0F0F0;
 
+    /* ── Charts (marks validated against the surface; see dataviz) ── */
+    --chart-mark: #4B7BBA;
+
     --color-danger: #D94444;
     --color-star: #DAA520;
     --color-energy: #2ecc71;
@@ -95,6 +98,7 @@
 
         --color-border: #374151;
         --color-border-subtle: #2D3340;
+        --chart-mark: #5F98D2;
 
         --color-danger: #EF4444;
         --color-star: #FBBF24;
@@ -142,6 +146,7 @@
 
     --color-border: #374151;
     --color-border-subtle: #2D3340;
+    --chart-mark: #5F98D2;
 
     --color-danger: #EF4444;
     --color-star: #FBBF24;

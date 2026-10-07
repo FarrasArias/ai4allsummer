@@ -610,6 +610,18 @@ Rough size: steps 1–3 about 2 days, 4–5 about 3 days, 6 about 2 days, 7 abou
 
 ---
 
+## After stage 1
+
+- **Admin Energy page** (`EnergyPane.tsx`; `GET /api/admin/energy?days=N`, `GET /api/admin/energy.csv`):
+  totals, energy per day, and breakdowns by person, mode and model for admins. Report entries now
+  also record `ms` (prompt duration). CSV cells starting `=` `+` `-` `@` are prefixed with `'` — the
+  model name comes from the browser, so it could otherwise smuggle a spreadsheet formula.
+- **Energy grade**: computed once (`energyGrade.ts`) for the sidebar and the header, averaging the
+  last 5 prompts and deferred until 5 prompts, as `technical_writeup.md` §4.2 describes.
+- `server/server.sh install` waits for the old service to unload before starting the new one:
+  loading it too soon failed with "Bootstrap failed: 5: Input/output error" and left the server
+  down until it was started again.
+
 ## Stage 2 (not now)
 
 Agent mode for online users, each in a container that only sees their own workspace folder. The

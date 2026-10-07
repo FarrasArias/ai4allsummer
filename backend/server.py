@@ -64,6 +64,7 @@ import threading
 import subprocess
 import signal
 import asyncio
+from datetime import date
 from contextlib import asynccontextmanager
 from typing import List, Optional, AsyncGenerator
 
@@ -72,7 +73,7 @@ import fitz  # PyMuPDF (kept for compatibility. TODO: Remove?)
 import ollama
 import requests
 from fastapi import FastAPI, UploadFile, File, Form, Depends, Request
-from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
@@ -1319,6 +1320,22 @@ def admin_invites():
 def admin_create_invite(payload: dict, request: Request, user: User = Depends(current_user)):
     token = accounts.create_invite(user, payload.get("role", "user"), payload.get("note", ""))
     return {"url": _link(request, f"/invite/{token}"), "expires_days": accounts.INVITE_DAYS}
+
+
+@app.get("/api/admin/energy", dependencies=[Depends(require_admin)])
+def admin_energy(days: int = 30):
+    """Totals for the admin Energy page; days=0 for all time."""
+    usernames = [u["username"] for u in accounts.list_users()]
+    return energy.report(days if days > 0 else None, usernames)
+
+
+@app.get("/api/admin/energy.csv", dependencies=[Depends(require_admin)])
+def admin_energy_csv():
+    name = f"uness-energy-{date.today().isoformat()}.csv"
+    return Response(
+        energy.csv_text(), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 
 @app.delete("/api/admin/invites/{invite_id}", dependencies=[Depends(require_admin)])

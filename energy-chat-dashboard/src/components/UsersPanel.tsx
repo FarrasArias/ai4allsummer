@@ -23,7 +23,7 @@ function when(ts: number | null): string {
     return new Date(ts * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-export default function UsersPanel() {
+export default function UsersPanel({ onOpenEnergy }: { onOpenEnergy?: () => void }) {
     const { me } = useSession();
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [invites, setInvites] = useState<Invite[]>([]);
@@ -83,6 +83,11 @@ export default function UsersPanel() {
         <section className="panel">
             <div className="panel-body users-panel">
                 <h3>Users</h3>
+                {onOpenEnergy && (
+                    <button type="button" className="energy-link" onClick={onOpenEnergy}>
+                        Energy report: everyone's energy use →
+                    </button>
+                )}
 
                 <form className="users-invite" onSubmit={invite}>
                     <div className="account-field">

@@ -832,3 +832,22 @@ export const listInvites = () => getJson<{ invites: Invite[] }>(`/api/admin/invi
 export const createInvite = (role: string, note: string) =>
   sendJson<{ url: string; expires_days: number }>(`/api/admin/invites`, { role, note });
 export const revokeInvite = (id: number) => sendJson(`/api/admin/invites/${id}`, undefined, "DELETE");
+
+// ── Admin: energy report (Energy page) ──
+
+export type EnergyGroup = { prompts: number; wh: number; last: string | null };
+export type EnergyReport = {
+  from: string;
+  to: string;
+  totals: { wh: number; prompts: number; people_active: number; people: number };
+  people: (EnergyGroup & { user: string; deleted: boolean })[];
+  modes: (EnergyGroup & { mode: string })[];
+  models: (EnergyGroup & { model: string })[];
+  days: { day: string; prompts: number; wh: number }[];
+};
+
+/** days = 0 for all time */
+export const getEnergyReport = (days: number) => getJson<EnergyReport>(`/api/admin/energy?days=${days}`);
+
+// A plain link: the browser downloads it with the session cookie
+export const ENERGY_CSV_URL = `${API_BASE}/api/admin/energy.csv`;

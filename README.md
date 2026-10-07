@@ -153,6 +153,13 @@ disable them, send a password-reset link, or delete them.
 
 To sign in as yourself from another device, first set a password under **This Mac → Account**.
 
+### Energy report (admins)
+
+**Energy report** in the sidebar (or **This Mac → Users → Energy report** on a phone) shows energy
+use for the last 7, 30 or 90 days or all time: totals, a chart per day, and breakdowns by
+person, mode and model. **Download CSV** gives every recorded prompt (date, user, mode, model,
+energy in Wh, and duration in ms for prompts recorded from now on) for analysis elsewhere.
+
 ### What people online can't use
 
 Agent mode and the Code tab (they run commands on this Mac), the test runner, downloading or

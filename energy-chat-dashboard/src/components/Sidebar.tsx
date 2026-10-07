@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import type { Grade } from "../energyGrade";
 
 /* ── Types ── */
-export type ModeTab = "chat" | "vibe" | "web" | "image" | "image_gen" | "conduct" | "about" | "settings" | "testing";
+export type ModeTab = "chat" | "vibe" | "web" | "image" | "image_gen" | "conduct" | "about" | "settings" | "testing" | "energy";
 export type ThemeChoice = "light" | "dark" | "system";
 
 type ChatMeta = {
@@ -63,6 +63,9 @@ type Props = {
 
     /* Code — hidden online, where it's locked (it runs the agent) */
     showCodeTab?: boolean;
+
+    /* Energy report — admins only */
+    showEnergyReport?: boolean;
 };
 
 /* ═══════════════════════════════════════════════
@@ -282,6 +285,7 @@ export default function Sidebar({
     onSearch,
     showConductTools = true,
     showCodeTab = true,
+    showEnergyReport = false,
 }: Props) {
     const [filter, setFilter] = useState(FILTER_ALL);
     const [searchText, setSearchText] = useState("");
@@ -519,6 +523,17 @@ export default function Sidebar({
                         </div>
                     )}
                 </div>
+
+                {/* ── Energy report (admins) ── */}
+                {showEnergyReport && (
+                    <button
+                        className="sidebar-settings"
+                        onClick={() => onTabChange("energy")}
+                    >
+                        <span className="sidebar-nav-icon"><IconBolt size={15} /></span>
+                        <span>Energy report</span>
+                    </button>
+                )}
 
                 {/* ── About Link ── */}
                 <button

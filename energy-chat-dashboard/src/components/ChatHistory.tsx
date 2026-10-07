@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { InferenceMetrics } from "../api";
+import { formatEnergy } from "../format";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
 type Props = {
@@ -20,12 +21,6 @@ function formatTime(ms: number): string {
 }
 
 // Format energy to human-readable string
-function formatEnergy(wh: number): string {
-  if (wh < 0.001) return `${(wh * 1000000).toFixed(2)} µWh`;
-  if (wh < 1) return `${(wh * 1000).toFixed(2)} mWh`;
-  return `${wh.toFixed(4)} Wh`;
-}
-
 // Rotating thinking messages for deep thinking mode
 const THINKING_MESSAGES = [
   "Analyzing the question...",
