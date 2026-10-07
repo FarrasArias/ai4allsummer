@@ -27,7 +27,8 @@ class OllamaChat:
     Designed to be reusable by both a CLI and a FastAPI server.
     """
     #qwen3:30b-a3b
-    def __init__(self, model: str = "qwen3:1.7b", max_context_tokens: int = 120_000):
+    def __init__(self, model: str = "qwen3:1.7b", max_context_tokens: int = 120_000,
+                 rag_dir: Path = Path("rag_cache")):
         self.model = model
         self.max_context_tokens = max_context_tokens
 
@@ -40,9 +41,10 @@ class OllamaChat:
 
         # RAG store: uploaded documents are chunked + embedded here, and only
         # the chunks relevant to each question are injected into the prompt.
-        # Persisted under rag_cache/ so uploads survive backend restarts.
+        # Persisted under rag_dir (the user's rag_cache/) so uploads survive
+        # backend restarts.
         safe_model = "".join(c if c.isalnum() or c in "._-" else "_" for c in model)
-        self.rag = RagStore(persist_dir=Path("rag_cache") / f"chat_{safe_model}")
+        self.rag = RagStore(persist_dir=Path(rag_dir) / f"chat_{safe_model}")
 
         # Names of loaded files (restored from a persisted store for dedup)
         self.loaded_files: List[str] = list(self.rag.document_names())

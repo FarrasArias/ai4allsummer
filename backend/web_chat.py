@@ -162,7 +162,7 @@ class WebChatSession:
     document excerpts can be injected without polluting the history.
     """
 
-    def __init__(self, model: str = MODEL_NAME):
+    def __init__(self, model: str = MODEL_NAME, rag_dir: Path = Path("rag_cache")):
         self.model = model
         self.base_system = get_system_prompt("web", DEFAULT_SYSTEM_PROMPT) or DEFAULT_SYSTEM_PROMPT
 
@@ -172,7 +172,7 @@ class WebChatSession:
         # Uploaded documents: RAG store (persisted across restarts) with
         # full-text fallback when embeddings are unavailable
         safe_model = "".join(c if c.isalnum() or c in "._-" else "_" for c in model)
-        self.rag = RagStore(persist_dir=Path("rag_cache") / f"web_{safe_model}")
+        self.rag = RagStore(persist_dir=Path(rag_dir) / f"web_{safe_model}")
         self.document_context: str = ""
         self.loaded_files: List[str] = list(self.rag.document_names())
 

@@ -11,6 +11,11 @@ correctly regardless of the backend process's working directory. Every
 path derives from this one constant, so moving it again (e.g. to
 ~/uness/conduct/) is a one-line change.
 
+In server mode each user has their own logs folder (SERVER_STAGE1.md §3):
+the functions below take `logs_dir`, which defaults to the owner's
+conduct_logs/. reference.md / snippets.md stay in the owner's folder and are
+shared, read-only, with everyone.
+
 The log markdown (<slug>.md) is the user's copy: this module only ever
 appends to it, and never rewrites or reformats what's already there. The
 sidecar (<slug>.json) is the machine-readable record of the same entries,
@@ -104,16 +109,16 @@ def read_content() -> dict:
     return {"reference": _read(REFERENCE_PATH), "snippets": _read(SNIPPETS_PATH)}
 
 
-def _sidecar_path(slug: str) -> Path:
-    return LOGS_DIR / f"{slug}.json"
+def _sidecar_path(slug: str, logs_dir: Path) -> Path:
+    return logs_dir / f"{slug}.json"
 
 
-def _md_path(slug: str) -> Path:
-    return LOGS_DIR / f"{slug}.md"
+def _md_path(slug: str, logs_dir: Path) -> Path:
+    return logs_dir / f"{slug}.md"
 
 
-def _load_sidecar(slug: str) -> list:
-    path = _sidecar_path(slug)
+def _load_sidecar(slug: str, logs_dir: Path) -> list:
+    path = _sidecar_path(slug, logs_dir)
     if not path.exists():
         return []
     try:
@@ -123,8 +128,8 @@ def _load_sidecar(slug: str) -> list:
         return []
 
 
-def _save_sidecar(slug: str, entries: list) -> None:
-    _sidecar_path(slug).write_text(
+def _save_sidecar(slug: str, entries: list, logs_dir: Path) -> None:
+    _sidecar_path(slug, logs_dir).write_text(
         json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
@@ -184,7 +189,7 @@ def _insert_before_commit_template(content: str, entry_md: str) -> str:
     return content[:idx] + entry_md + content[idx:]
 
 
-def append_entry(slug: str, payload: dict) -> Path:
+def append_entry(slug: str, payload: dict, logs_dir: Path = LOGS_DIR) -> Path:
     """Append one entry to <slug>.md and <slug>.json. Creates both files
     (with header + pinned Commit template) if this is the first entry for
     the slug. Raises ValueError on invalid input."""
@@ -207,8 +212,9 @@ def append_entry(slug: str, payload: dict) -> Path:
     title = (payload.get("title") or "").strip() or slug
 
     ensure_initialized()
+    logs_dir.mkdir(parents=True, exist_ok=True)
 
-    md_path = _md_path(slug)
+    md_path = _md_path(slug, logs_dir)
     ts = time.time()
 
     if not md_path.exists():
@@ -218,7 +224,7 @@ def append_entry(slug: str, payload: dict) -> Path:
     current = md_path.read_text(encoding="utf-8")
     md_path.write_text(_insert_before_commit_template(current, entry_md), encoding="utf-8", newline="")
 
-    entries = _load_sidecar(slug)
+    entries = _load_sidecar(slug, logs_dir)
     entries.append({
         "ts": int(ts),
         "phase": phase,
@@ -229,24 +235,24 @@ def append_entry(slug: str, payload: dict) -> Path:
         "mode": mode,
         "energy_wh": energy_wh,
     })
-    _save_sidecar(slug, entries)
+    _save_sidecar(slug, entries, logs_dir)
 
     return md_path
 
 
-def log_path(slug: str) -> Path:
+def log_path(slug: str, logs_dir: Path = LOGS_DIR) -> Path:
     """Absolute path to a log's markdown file. Raises ValueError if the slug
     is malformed or no such log exists — callers hand this straight to the
-    knowledge layer, so it must never resolve outside CONDUCT_DIR."""
+    knowledge layer, so it must never resolve outside logs_dir."""
     if not _is_safe_slug(slug):
         raise ValueError("invalid slug")
-    path = _md_path(slug)
+    path = _md_path(slug, logs_dir)
     if not path.exists():
         raise ValueError("no such log")
     return path
 
 
-def read_log(slug: str) -> str:
+def read_log(slug: str, logs_dir: Path = LOGS_DIR) -> str:
     """A log's markdown, for the read-only view on the Conduct page.
 
     CONDUCT_STAGE1.md deliberately had no way to read a log back: the file
@@ -255,18 +261,18 @@ def read_log(slug: str) -> str:
     seen again. This reads for display only; the app still only ever
     appends, and never rewrites what is there.
     """
-    return log_path(slug).read_text(encoding="utf-8")
+    return log_path(slug, logs_dir).read_text(encoding="utf-8")
 
 
-def list_logs() -> list:
+def list_logs(logs_dir: Path = LOGS_DIR) -> list:
     """Summaries of every log, newest-updated first."""
     ensure_initialized()
     summaries = []
-    for md_path in LOGS_DIR.glob("*.md"):
+    for md_path in logs_dir.glob("*.md"):
         if md_path.name in _CONTENT_FILENAMES:
             continue
         slug = md_path.stem
-        entries = _load_sidecar(slug)
+        entries = _load_sidecar(slug, logs_dir)
         phase_counts = {p: 0 for p in PHASES}
         for e in entries:
             p = (e.get("phase") or "").lower()
@@ -281,10 +287,9 @@ def list_logs() -> list:
         except (OSError, IndexError):
             pass
 
-        try:
-            display_path = md_path.relative_to(_PROJECT_ROOT).as_posix()
-        except ValueError:
-            display_path = str(md_path)
+        # "conduct_logs/<slug>.md": relative to the repo root for the owner,
+        # to their own data folder for everyone else
+        display_path = md_path.relative_to(logs_dir.parent).as_posix()
 
         summaries.append({
             "slug": slug,

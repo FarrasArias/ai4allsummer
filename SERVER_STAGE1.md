@@ -310,6 +310,18 @@ endpoints fall back to the **user's** last-used chat model instead of the global
 `/api/{chat,vibe,web,image-gen}/reset` currently zero the global energy counters. They reset only
 the caller's engine and the caller's session counters.
 
+### As built (step 5)
+
+- `utilities/engine_registry.py`: one registry per engine type, keyed by `(user id, model)`,
+  sweeping out engines idle for 24 h on access. Disabling or deleting a user drops theirs at once;
+  deleting a model drops it for everyone.
+- `OllamaChat` / `WebChatSession` take `rag_dir`; `/api/rag/documents` reads the caller's.
+- Chats, analyses and Conduct logs read and write `paths_for(user)` folders, created on first use.
+  `conduct_store` functions take `logs_dir` (default: the owner's `conduct_logs/`).
+- The conduct append response gives `conduct_logs/<slug>.md`, not the absolute path on this Mac.
+- The last-used model (conduct index fallback) is per user.
+- Agent sessions stay keyed by model only — the agent is local-only, so only the owner has any.
+
 ---
 
 ## 4. Inference queue

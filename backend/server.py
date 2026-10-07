@@ -57,7 +57,6 @@ import os
 import io
 import base64
 import json
-from pathlib import Path as _Path
 import time
 import shutil
 import threading
@@ -91,6 +90,7 @@ from utilities.access import (
 from utilities.inference_queue import QUEUE, QueueBusy, QueueTimeout, queued_response
 from utilities import energy
 from utilities.energy import EnergyMeter
+from utilities.engine_registry import EngineRegistry
 from utilities.user_paths import InvalidName, paths_for, safe_child
 from utilities.uploads import (
     UploadTooLarge,
@@ -131,73 +131,26 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 conduct_store.ensure_initialized()
 about_store.ensure_initialized()
 
-# Last chat model used — the conduct index endpoints' fallback
-_latest_chat_model: Optional[str] = None
+# Each user's last-used model — the conduct index endpoints' fallback
+_last_model: dict[int, str] = {}
 
-# Per-model chat engines to preserve memory per model
-_CHAT_ENGINES: dict[str, OllamaChat] = {}
-_CHAT_ENGINES_LOCK = threading.Lock()
-
-# Per-model VibeCoding engines (code assistant)
-_VIBE_ENGINES: dict[str, VibeCodingChat] = {}
-_VIBE_ENGINES_LOCK = threading.Lock()
-
-# Per-model Web chat sessions (tools-enabled web assistant)
-_WEB_SESSIONS: dict[str, WebChatSession] = {}
-_WEB_SESSIONS_LOCK = threading.Lock()
-
-# Per-model Image generation engines (prompt enhancer model)
-_IMGGEN_ENGINES: dict[str, ImageGenEngine] = {}
-_IMGGEN_ENGINES_LOCK = threading.Lock()
+# Engines per (user, model): each holds one conversation and its documents,
+# so they're never shared between users (SERVER_STAGE1.md §3)
+CHAT_ENGINES: EngineRegistry[OllamaChat] = EngineRegistry(
+    lambda user, model: OllamaChat(model=model, rag_dir=paths_for(user).rag_cache))
+VIBE_ENGINES: EngineRegistry[VibeCodingChat] = EngineRegistry(
+    lambda user, model: VibeCodingChat(model=model))
+WEB_SESSIONS: EngineRegistry[WebChatSession] = EngineRegistry(
+    lambda user, model: WebChatSession(model=model, rag_dir=paths_for(user).rag_cache))
+IMGGEN_ENGINES: EngineRegistry[ImageGenEngine] = EngineRegistry(
+    lambda user, model: ImageGenEngine(enhancer_model=model))
+_ALL_ENGINES = (CHAT_ENGINES, VIBE_ENGINES, WEB_SESSIONS, IMGGEN_ENGINES)
 
 
-def _get_chat_engine(model: str) -> OllamaChat:
-    """
-    Return an OllamaChat instance for the requested model.
-    Each model gets its own conversation history + document context.
-    """
-    with _CHAT_ENGINES_LOCK:
-        engine = _CHAT_ENGINES.get(model)
-        if engine is None:
-            engine = OllamaChat(model=model)
-            _CHAT_ENGINES[model] = engine
-        return engine
-
-def _get_vibe_engine(model: str) -> VibeCodingChat:
-    """
-    Return a VibeCodingChat instance for the requested model.
-    Each model gets its own code context + conversation history.
-    """
-    with _VIBE_ENGINES_LOCK:
-        engine = _VIBE_ENGINES.get(model)
-        if engine is None:
-            engine = VibeCodingChat(model=model)
-            _VIBE_ENGINES[model] = engine
-        return engine
-
-
-def _get_web_session(model: str) -> WebChatSession:
-    """
-    Return a WebChatSession instance for the requested model.
-    """
-    with _WEB_SESSIONS_LOCK:
-        sess = _WEB_SESSIONS.get(model)
-        if sess is None:
-            sess = WebChatSession(model=model)
-            _WEB_SESSIONS[model] = sess
-        return sess
-
-
-def _get_imggen_engine(model: str) -> ImageGenEngine:
-    """
-    Return an ImageGenEngine for the requested enhancer model.
-    """
-    with _IMGGEN_ENGINES_LOCK:
-        engine = _IMGGEN_ENGINES.get(model)
-        if engine is None:
-            engine = ImageGenEngine(enhancer_model=model)
-            _IMGGEN_ENGINES[model] = engine
-        return engine
+def _user_dir(path) -> str:
+    """A per-user folder, created on first use."""
+    os.makedirs(path, exist_ok=True)
+    return str(path)
 
 
 @asynccontextmanager
@@ -286,8 +239,8 @@ def delete_models(models: List[str]):
             ollama.delete(m)
             results[m] = "deleted"
             # Also drop any in-memory chat engine for this model
-            with _CHAT_ENGINES_LOCK:
-                _CHAT_ENGINES.pop(m, None)
+            for registry in _ALL_ENGINES:
+                registry.drop_model(m)
         except Exception as e:
             results[m] = f"error: {e}"
     return {"results": results}
@@ -398,7 +351,7 @@ def chat(
                 context_files.append(str(save_upload(f, upload_dir)))
 
         # Get or create the chat engine for this model
-        engine = _get_chat_engine(model)
+        engine = CHAT_ENGINES.get(user, model)
     except BaseException:
         QUEUE.release(ticket)
         if upload_dir:
@@ -406,7 +359,6 @@ def chat(
         raise
 
     def _gen() -> AsyncGenerator[bytes, None]:
-        global _latest_chat_model
 
         # Load uploaded docs into the engine's document window. Indexing
         # embeds them on the GPU, so it happens here, once it's our turn.
@@ -419,7 +371,7 @@ def chat(
                 # Non-fatal: we log, but still attempt to answer the prompt
                 print(f"Error loading document {path}: {e}")
 
-        _latest_chat_model = model
+        _last_model[user.id] = model
 
         meter = EnergyMeter(user, model, "chat")
         meter.start()
@@ -465,10 +417,9 @@ def reset_chat(model: str = Form(...), user: User = Depends(current_user)):
     """
     # Only reset the engine if one already exists — avoid creating a new one
     # (which verifies the model via ollama.show and can fail before first prompt)
-    with _CHAT_ENGINES_LOCK:
-        engine = _CHAT_ENGINES.get(model)
-        if engine is not None:
-            engine.reset()
+    engine = CHAT_ENGINES.peek(user, model)
+    if engine is not None:
+        engine.reset()
 
     energy.reset_session(user)
 
@@ -491,11 +442,10 @@ def vibe_code(
     - Optionally loads uploaded code files into context
     - Returns JSON: { ok: bool, response?: str, error?: str }
     """
-    global _latest_chat_model
 
     ticket = QUEUE.enter(user.id, "a code request")
     try:
-        engine = _get_vibe_engine(model)
+        engine = VIBE_ENGINES.get(user, model)
 
         # Save any uploaded code files and load them into the vibe engine
         if files:
@@ -512,7 +462,7 @@ def vibe_code(
 
         QUEUE.acquire(ticket)
 
-        _latest_chat_model = model
+        _last_model[user.id] = model
 
         meter = EnergyMeter(user, model, "code")
         meter.start()
@@ -532,7 +482,7 @@ def reset_vibe(model: str = Form(...), user: User = Depends(current_user)):
     Reset VibeCodingChat state for the given model,
     and reset per-session energy counters.
     """
-    engine = _get_vibe_engine(model)
+    engine = VIBE_ENGINES.get(user, model)
     engine.reset()
 
     energy.reset_session(user)
@@ -569,7 +519,7 @@ def web_chat_endpoint(
     saved_docs: List[tuple] = []
     upload_dir = new_upload_dir(paths_for(user).uploads / "web") if files else None
     try:
-        session = _get_web_session(model)
+        session = WEB_SESSIONS.get(user, model)
         for f in files or []:
             name = clean_filename(f.filename)
             if os.path.splitext(name)[1].lower() in IMAGE_UPLOAD_EXTS:
@@ -583,7 +533,6 @@ def web_chat_endpoint(
         raise
 
     def _gen():
-        global _latest_chat_model
 
         for name, dst in saved_docs:
             try:
@@ -598,7 +547,7 @@ def web_chat_endpoint(
             except Exception as e:
                 doc_notes.append(f"Could not load {name}: {e}")
 
-        _latest_chat_model = model
+        _last_model[user.id] = model
 
         meter = EnergyMeter(user, model, "web")
         meter.start()
@@ -626,7 +575,7 @@ def reset_web(model: str = Form(...), user: User = Depends(current_user)):
     """
     Reset WebChatSession for the given model and clear session energy.
     """
-    session = _get_web_session(model)
+    session = WEB_SESSIONS.get(user, model)
     session.reset()
 
     energy.reset_session(user)
@@ -638,7 +587,7 @@ def reset_web(model: str = Form(...), user: User = Depends(current_user)):
 # RAG: list persisted documents for a mode+model
 # -----------------------------
 @app.get("/api/rag/documents")
-def rag_documents(mode: str = "chat", model: str = ""):
+def rag_documents(mode: str = "chat", model: str = "", user: User = Depends(current_user)):
     """
     Return document names stored in the RAG cache for a mode+model, so the
     frontend can show that previously uploaded documents are still loaded
@@ -649,7 +598,7 @@ def rag_documents(mode: str = "chat", model: str = ""):
     if mode not in ("chat", "web"):
         return JSONResponse({"error": "mode must be 'chat' or 'web'"}, status_code=400)
     safe_model = "".join(c if c.isalnum() or c in "._-" else "_" for c in model)
-    store = RagStore(persist_dir=_Path("rag_cache") / f"{mode}_{safe_model}")
+    store = RagStore(persist_dir=paths_for(user).rag_cache / f"{mode}_{safe_model}")
     return {"documents": store.document_names()}
 
 
@@ -664,32 +613,35 @@ def conduct_content():
 
 
 @app.get("/api/conduct/logs")
-def conduct_logs():
-    return {"logs": conduct_store.list_logs()}
+def conduct_logs(user: User = Depends(current_user)):
+    return {"logs": conduct_store.list_logs(paths_for(user).conduct_logs)}
 
 
 @app.get("/api/conduct/log/{slug}")
-def conduct_log_content(slug: str):
+def conduct_log_content(slug: str, user: User = Depends(current_user)):
     """A log's raw markdown, for the read-only view on the Conduct page.
     Display only — the app never writes through this."""
     try:
-        return {"content": conduct_store.read_log(slug)}
+        return {"content": conduct_store.read_log(slug, paths_for(user).conduct_logs)}
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
 @app.post("/api/conduct/log/{slug}/append")
-def conduct_append(slug: str, payload: dict):
+def conduct_append(slug: str, payload: dict, user: User = Depends(current_user)):
     """Append one entry to a conduct log (creating it on first use).
 
     Note/prompt/response may each be empty, but not all three — a note-only
     entry (e.g. a Commit with no AI turn) is valid and must be written.
     """
     try:
-        path = conduct_store.append_entry(slug, payload)
+        logs_dir = paths_for(user).conduct_logs
+        path = conduct_store.append_entry(slug, payload, logs_dir)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
-    return {"ok": True, "path": str(path)}
+    # Same form as the log list ("conduct_logs/<slug>.md") — not where this
+    # Mac keeps it, which is nobody's business online
+    return {"ok": True, "path": path.relative_to(logs_dir.parent).as_posix()}
 
 
 @app.post("/api/conduct/open", dependencies=[Depends(require_local)])
@@ -716,20 +668,20 @@ def conduct_index(slug: str, payload: dict | None = None, user: User = Depends(c
     """
     payload = payload or {}
     try:
-        path = conduct_store.log_path(slug)
+        path = conduct_store.log_path(slug, paths_for(user).conduct_logs)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
     model = (
         payload.get("model")
-        or _latest_chat_model
+        or _last_model.get(user.id)
         or get_model_config().get("chat", {}).get("default", CHAT_DEFAULT_MODEL)
     )
     # Embedding the log is GPU work, so it waits for a turn
     ticket = QUEUE.enter(user.id, "document indexing")
     try:
         QUEUE.acquire(ticket)
-        info = _get_chat_engine(model).reindex_document(str(path))
+        info = CHAT_ENGINES.get(user, model).reindex_document(str(path))
     except QueueTimeout:
         raise
     except Exception as e:
@@ -746,23 +698,23 @@ def conduct_index(slug: str, payload: dict | None = None, user: User = Depends(c
 
 
 @app.delete("/api/conduct/log/{slug}/index")
-def conduct_unindex(slug: str, model: str = ""):
+def conduct_unindex(slug: str, model: str = "", user: User = Depends(current_user)):
     """Remove a conduct log from a chat model's knowledge layer.
 
     The inverse of the index endpoint. Indexing is per mode+model, so this
     only affects the model given (or the last chat model used).
     """
     try:
-        path = conduct_store.log_path(slug)
+        path = conduct_store.log_path(slug, paths_for(user).conduct_logs)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
     model = (
         model
-        or _latest_chat_model
+        or _last_model.get(user.id)
         or get_model_config().get("chat", {}).get("default", CHAT_DEFAULT_MODEL)
     )
-    removed = _get_chat_engine(model).remove_document(path.name)
+    removed = CHAT_ENGINES.get(user, model).remove_document(path.name)
     return {"ok": True, "model": model, "removed": removed}
 
 
@@ -805,11 +757,10 @@ def image_gen_endpoint(
 
 
 def _generate_image(user, prompt, model, enhance, negative_prompt, width, height, steps, cfg_scale):
-    global _latest_chat_model
 
-    _latest_chat_model = model
+    _last_model[user.id] = model
 
-    engine = _get_imggen_engine(model)
+    engine = IMGGEN_ENGINES.get(user, model)
     do_enhance = enhance.lower() in ("true", "1", "yes")
 
     meter = EnergyMeter(user, model, "image_generation")
@@ -845,7 +796,7 @@ def _generate_image(user, prompt, model, enhance, negative_prompt, width, height
 @app.get("/api/image-gen/status")
 def image_gen_status():
     """Check if the SD WebUI API is reachable and list available SD models."""
-    engine = _get_imggen_engine(IMGGEN_DEFAULT_MODEL)
+    engine = ImageGenEngine(enhancer_model=IMGGEN_DEFAULT_MODEL)  # only asks SD WebUI what it has
     available = engine.sd_available()
     sd_models = engine.get_sd_models() if available else []
     return {
@@ -857,7 +808,7 @@ def image_gen_status():
 @app.post("/api/image-gen/reset")
 def reset_image_gen(model: str = Form(...), user: User = Depends(current_user)):
     """Reset ImageGenEngine history for the given model."""
-    engine = _get_imggen_engine(model)
+    engine = IMGGEN_ENGINES.get(user, model)
     engine.reset()
 
     energy.reset_session(user)
@@ -930,10 +881,11 @@ def analyze_image(
 # Save / Load chat sessions
 # -----------------------------
 @app.get("/api/chats")
-def list_chats():
+def list_chats(user: User = Depends(current_user)):
+    chat_dir = _user_dir(paths_for(user).chats)
     items = []
-    for d in os.listdir(CHAT_DIR):
-        chat_path = os.path.join(CHAT_DIR, d)
+    for d in os.listdir(chat_dir):
+        chat_path = os.path.join(chat_dir, d)
         if not os.path.isdir(chat_path):
             continue
         entry = {"name": d}
@@ -975,8 +927,10 @@ def save_chat(
     meta_json: str | None = Form(
         None
     ),  # mode, created_at, updated_at
+    user: User = Depends(current_user),
 ):
-    path = safe_child(CHAT_DIR, name)
+    chat_dir = _user_dir(paths_for(user).chats)
+    path = safe_child(chat_dir, name)
     is_new = not os.path.isdir(path)
     os.makedirs(path, exist_ok=True)
 
@@ -1019,8 +973,9 @@ def save_chat(
 
 
 @app.get("/api/chats/{name}")
-def load_chat_endpoint(name: str):
-    path = os.path.join(safe_child(CHAT_DIR, name), "history.json")
+def load_chat_endpoint(name: str, user: User = Depends(current_user)):
+    chat_dir = _user_dir(paths_for(user).chats)
+    path = os.path.join(safe_child(chat_dir, name), "history.json")
     if not os.path.exists(path):
         return JSONResponse({"error": "not found"}, status_code=404)
     with open(path, "r", encoding="utf-8") as f:
@@ -1028,8 +983,9 @@ def load_chat_endpoint(name: str):
 
 
 @app.delete("/api/chats/{name}")
-def delete_chat_endpoint(name: str):
-    path = safe_child(CHAT_DIR, name)
+def delete_chat_endpoint(name: str, user: User = Depends(current_user)):
+    chat_dir = _user_dir(paths_for(user).chats)
+    path = safe_child(chat_dir, name)
     if not os.path.isdir(path):
         return JSONResponse({"error": "not found"}, status_code=404)
     shutil.rmtree(path)
@@ -1037,9 +993,10 @@ def delete_chat_endpoint(name: str):
 
 
 @app.post("/api/chats/rename")
-def rename_chat_endpoint(old_name: str = Form(...), new_name: str = Form(...)):
-    old_path = safe_child(CHAT_DIR, old_name)
-    new_path = safe_child(CHAT_DIR, new_name)
+def rename_chat_endpoint(old_name: str = Form(...), new_name: str = Form(...), user: User = Depends(current_user)):
+    chat_dir = _user_dir(paths_for(user).chats)
+    old_path = safe_child(chat_dir, old_name)
+    new_path = safe_child(chat_dir, new_name)
     if not os.path.isdir(old_path):
         return JSONResponse({"error": "not found"}, status_code=404)
     if os.path.exists(new_path):
@@ -1049,19 +1006,20 @@ def rename_chat_endpoint(old_name: str = Form(...), new_name: str = Form(...)):
 
 
 @app.get("/api/chats-search")
-def search_chats(q: str = ""):
+def search_chats(q: str = "", user: User = Depends(current_user)):
     """
     Search all saved chats for a query string.
     Returns list of { chatName, matches: [{ role, snippet, index }] }
     """
+    chat_dir = _user_dir(paths_for(user).chats)
     if not q or len(q) < 2:
         return {"results": []}
 
     query = q.lower()
     results = []
 
-    for chat_name in os.listdir(CHAT_DIR):
-        chat_path = os.path.join(CHAT_DIR, chat_name)
+    for chat_name in os.listdir(chat_dir):
+        chat_path = os.path.join(chat_dir, chat_name)
         if not os.path.isdir(chat_path):
             continue
 
@@ -1103,11 +1061,12 @@ def search_chats(q: str = ""):
 # Save / Load image analyses
 # -----------------------------
 @app.get("/api/analyses")
-def list_analyses():
+def list_analyses(user: User = Depends(current_user)):
+    img_dir = _user_dir(paths_for(user).images)
     items = [
         d
-        for d in os.listdir(IMG_DIR)
-        if os.path.isdir(os.path.join(IMG_DIR, d))
+        for d in os.listdir(img_dir)
+        if os.path.isdir(os.path.join(img_dir, d))
     ]
     return {"analyses": items}
 
@@ -1117,8 +1076,10 @@ def save_analysis(
     name: str = Form(...),
     history_json: str = Form(...),
     image: UploadFile = File(None),
+    user: User = Depends(current_user),
 ):
-    path = safe_child(IMG_DIR, name)
+    img_dir = _user_dir(paths_for(user).images)
+    path = safe_child(img_dir, name)
     image_bytes = read_upload(image) if image else None
     os.makedirs(path, exist_ok=True)
 
@@ -1133,8 +1094,9 @@ def save_analysis(
 
 
 @app.get("/api/analyses/{name}")
-def load_analysis_endpoint(name: str):
-    analysis_dir = safe_child(IMG_DIR, name)
+def load_analysis_endpoint(name: str, user: User = Depends(current_user)):
+    img_dir = _user_dir(paths_for(user).images)
+    analysis_dir = safe_child(img_dir, name)
     path = os.path.join(analysis_dir, "history.json")
     if not os.path.exists(path):
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -1324,6 +1286,9 @@ def admin_update_user(user_id: int, payload: dict, user: User = Depends(current_
         accounts.set_role(user_id, payload["role"])
     if "status" in payload:
         accounts.set_status(user_id, payload["status"])
+        if payload["status"] == "disabled":
+            for registry in _ALL_ENGINES:
+                registry.drop_user(user_id)
     return {"ok": True}
 
 
@@ -1331,6 +1296,8 @@ def admin_update_user(user_id: int, payload: dict, user: User = Depends(current_
 def admin_delete_user(user_id: int, user: User = Depends(current_user)):
     _not_self(user_id, user)
     accounts.delete_user(user_id)
+    for registry in _ALL_ENGINES:
+        registry.drop_user(user_id)
     return {"ok": True}
 
 
@@ -1510,8 +1477,7 @@ def agent_chat(
     ticket = QUEUE.enter(user.id, "an agent task", exempt=True)
 
     def _gen_with_energy():
-        global _latest_chat_model
-        _latest_chat_model = model
+        _last_model[user.id] = model
 
         meter = EnergyMeter(user, model, "agent")
         meter.start()
