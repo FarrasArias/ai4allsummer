@@ -2,13 +2,21 @@
 // proxies /api to it (vite.config.ts).
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
+// Fired when the server answers 401 — the session expired or the account was
+// disabled. AuthGate listens for it and shows the login screen.
+export const SIGNED_OUT_EVENT = "uness:signed-out";
+
 // All API requests go through here. The backend refuses non-GET requests
 // without X-Uness-Client, which stops other websites from submitting forms
 // to it (SERVER_STAGE1.md §1c).
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set("X-Uness-Client", "1");
-  return fetch(`${API_BASE}${path}`, { ...init, headers });
+  return fetch(`${API_BASE}${path}`, { ...init, headers }).then((res) => {
+    // Session expired or the account was disabled: back to the login screen
+    if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+    return res;
+  });
 }
 
 // An error whose message is meant for the user, e.g. "You already have a
@@ -753,3 +761,74 @@ export async function appendConductLog(
   );
   return res.json();
 }
+
+// ── Accounts (server mode, SERVER_STAGE1.md §2) ──
+
+export type Capabilities = {
+  agent: boolean;          // Agent mode and the Code tab run commands on the host Mac
+  code_tab: boolean;
+  test_runner: boolean;
+  conduct_open: boolean;   // open/reveal log files on the host Mac
+  manage_models: boolean;
+  manage_users: boolean;
+};
+
+export type AccountUser = { id: number; username: string; role: "admin" | "user"; is_owner: boolean };
+
+export type Me = {
+  user: AccountUser | null;
+  local: boolean;          // at the host Mac: no login, every feature
+  has_password?: boolean;
+  capabilities?: Capabilities;
+};
+
+async function sendJson<T = any>(path: string, body?: unknown, method = "POST"): Promise<T> {
+  const res = await apiFetch(path, {
+    method,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw await errorFrom(res);
+  return res.json();
+}
+
+async function getJson<T = any>(path: string): Promise<T> {
+  const res = await apiFetch(path);
+  if (!res.ok) throw await errorFrom(res);
+  return res.json();
+}
+
+export const getMe = () => getJson<Me>(`/api/me`);
+export const login = (username: string, password: string) =>
+  sendJson(`/api/auth/login`, { username, password });
+export const logout = () => sendJson(`/api/auth/logout`);
+export const changePassword = (newPassword: string, currentPassword?: string) =>
+  sendJson(`/api/auth/password`, { new_password: newPassword, current_password: currentPassword });
+
+export const getInvite = (token: string) =>
+  getJson<{ role: string; note: string }>(`/api/auth/invite/${encodeURIComponent(token)}`);
+export const acceptInvite = (token: string, username: string, password: string) =>
+  sendJson(`/api/auth/invite/${encodeURIComponent(token)}`, { username, password });
+export const getReset = (token: string) =>
+  getJson<{ username: string }>(`/api/auth/reset/${encodeURIComponent(token)}`);
+export const acceptReset = (token: string, password: string) =>
+  sendJson(`/api/auth/reset/${encodeURIComponent(token)}`, { password });
+
+export type AdminUser = AccountUser & {
+  status: "active" | "disabled";
+  created_at: number;
+  last_seen_at: number | null;
+  has_password: boolean;
+};
+export type Invite = { id: number; role: string; note: string; created_at: number; expires_at: number };
+
+export const listUsers = () => getJson<{ users: AdminUser[] }>(`/api/admin/users`);
+export const updateUser = (id: number, patch: { role?: string; status?: string }) =>
+  sendJson(`/api/admin/users/${id}`, patch);
+export const deleteUser = (id: number) => sendJson(`/api/admin/users/${id}`, undefined, "DELETE");
+export const createResetLink = (id: number) =>
+  sendJson<{ url: string; expires_hours: number }>(`/api/admin/users/${id}/reset-link`);
+export const listInvites = () => getJson<{ invites: Invite[] }>(`/api/admin/invites`);
+export const createInvite = (role: string, note: string) =>
+  sendJson<{ url: string; expires_days: number }>(`/api/admin/invites`, { role, note });
+export const revokeInvite = (id: number) => sendJson(`/api/admin/invites/${id}`, undefined, "DELETE");

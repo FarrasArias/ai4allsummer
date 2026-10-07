@@ -10,6 +10,8 @@ import ImageGenPane from "./components/ImageGenPane";
 import ConductPane from "./components/ConductPane";
 import AboutPane from "./components/AboutPane";
 import TestRunnerPane from "./components/TestRunnerPane";
+import AccountPanel from "./components/AccountPanel";
+import UsersPanel from "./components/UsersPanel";
 import { TipProvider } from "./components/TipContext";
 import {
     streamPower,
@@ -38,6 +40,7 @@ import {
 } from "./api";
 
 import StudyControls, { loadPersistedStudySettings } from "./components/StudyControls";
+import { useSession } from "./session";
 import type { StudySettings, PromptMetric } from "./components/StudyControls";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
@@ -55,6 +58,9 @@ function generateChatName(messages: Msg[]): string {
 }
 
 export default function App() {
+    /* ── Who's using the app, and what they may use (server mode) ── */
+    const { me } = useSession();
+    const caps = me.capabilities!;
     /* ── Energy state ── */
     const [latestPromptWh, setLatestPromptWh] = useState<number | null>(null);
     const [sessionTotalWh, setSessionTotalWh] = useState<number | null>(null);
@@ -208,6 +214,11 @@ export default function App() {
         if (!showConductTools && tab === "conduct") setTab("chat");
     }, [showConductTools, tab]);
 
+    // Online, the Code tab (it runs the agent) and the test runner are locked
+    useEffect(() => {
+        if ((tab === "vibe" && !caps.code_tab) || (tab === "testing" && !caps.test_runner)) setTab("chat");
+    }, [tab, caps.code_tab, caps.test_runner]);
+
     // Load mode defaults from backend
     useEffect(() => {
         getModeDefaults()
@@ -307,7 +318,8 @@ export default function App() {
     /* ── Handlers ── */
 
     async function handleRequestModelLoad(model: string) {
-        if (!model || modelLoading) return;
+        // Preloading is admin-only on the server (it pins a model in memory)
+        if (!model || modelLoading || !caps.manage_models) return;
         setModelLoading(true);
         setModelLoadTarget(model);
         try { await loadModel(model); }
@@ -563,6 +575,7 @@ export default function App() {
                     onThemeChange={setTheme}
                     onSearch={handleSearch}
                     showConductTools={showConductTools}
+                    showCodeTab={caps.code_tab}
                 />
 
                 {/* ── Main Content ── */}
@@ -585,6 +598,8 @@ export default function App() {
                         logTitleDefault={defaultLogTitle}
                         showLogTitleField={!logSlug}
                         logSlug={logSlug}
+                        accountLabel={me.local ? "This Mac" : me.user!.username}
+                        onOpenAccount={() => setTab("settings")}
                     />
 
                     {/* Content area */}
@@ -601,9 +616,10 @@ export default function App() {
                                 model={chatModeModel || undefined}
                                 fastModel={fastModel || undefined}
                                 deepModel={deepModel || undefined}
-                                autoLoadModel={autoLoadModel}
+                                autoLoadModel={autoLoadModel && caps.manage_models}
                                 modelLoading={modelLoading}
                                 onRequestModelLoad={handleRequestModelLoad}
+                                allowAgent={caps.agent}
                                 onUserPrompt={(m) => setPromptMetrics((arr) => [...arr, m])}
                                 onHistoryChange={(history) => setMessages(history)}
                                 onModelChange={(model) => setCurrentModel(model)}
@@ -638,7 +654,7 @@ export default function App() {
 
                     {tab === "conduct" && (
                         <div className="pane-scroll">
-                            <ConductPane chatModel={activeModel || null} />
+                            <ConductPane chatModel={activeModel || null} canOpenFiles={caps.conduct_open} />
                         </div>
                     )}
 
@@ -650,7 +666,12 @@ export default function App() {
 
                     {tab === "settings" && (
                         <div className="pane-scroll">
+                            <div style={{ display: "grid", gap: 16, marginBottom: 16 }}>
+                                <AccountPanel />
+                                {caps.manage_users && <UsersPanel />}
+                            </div>
                             <ModelManagerPane
+                                canManageModels={caps.manage_models}
                                 fastModel={fastModel}
                                 deepModel={deepModel}
                                 onFastModelChange={setFastModel}
@@ -712,7 +733,7 @@ export default function App() {
                         </div>
                     )}
 
-                    {tab === "testing" && (
+                    {tab === "testing" && caps.test_runner && (
                         <div className="pane-scroll">
                             <TestRunnerPane defaultModel={chatModeModel || undefined} />
                         </div>

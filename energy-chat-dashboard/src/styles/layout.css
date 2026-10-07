@@ -1770,3 +1770,275 @@ button, .btn {
     overflow-wrap: break-word;
     word-break: break-word;
 }
+
+
+/* ═══════════════════════════════════════════════
+   ACCOUNTS — sign-in screens, Account and Users panels
+   (server mode, SERVER_STAGE1.md §7)
+   ═══════════════════════════════════════════════ */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.auth-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    background: var(--color-sidebar-bg);
+    color: var(--color-text);
+    font-family: var(--font-family);
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    padding: 28px 24px;
+}
+
+.auth-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+
+.auth-title {
+    font-size: var(--font-size-2xl);
+    margin: 0 0 6px;
+}
+
+.auth-subtitle,
+.auth-footnote {
+    font-size: var(--font-size-md);
+    color: var(--color-text-dim);
+    margin: 0 0 18px;
+    line-height: 1.45;
+}
+
+.auth-footnote {
+    margin: 18px 0 0;
+}
+
+.auth-form {
+    display: grid;
+    gap: 14px;
+}
+
+.auth-field,
+.account-field {
+    display: grid;
+    gap: 5px;
+    font-size: var(--font-size-md);
+    font-weight: 500;
+}
+
+.auth-field small,
+.account-field small {
+    font-weight: 400;
+    color: var(--color-text-dim);
+}
+
+.auth-field input,
+.account-form input,
+.users-panel input,
+.users-panel select {
+    font: inherit;
+    font-weight: 400;
+    padding: 8px 10px;
+    border: 1px solid var(--input-border);
+    border-radius: var(--radius-sm);
+    background: var(--input-bg);
+    color: var(--input-text);
+    min-width: 0;
+}
+
+.auth-field input:focus-visible,
+.account-form input:focus-visible,
+.users-panel input:focus-visible,
+.users-panel select:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+}
+
+.auth-submit {
+    padding: 10px 14px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--button-bg);
+    color: var(--button-text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.auth-submit:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+}
+
+.auth-submit:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.auth-error {
+    color: var(--color-danger);
+    font-size: var(--font-size-md);
+    margin: 0;
+}
+
+.account-panel,
+.users-panel {
+    display: grid;
+    gap: 12px;
+}
+
+.account-panel h3,
+.users-panel h3,
+.account-form h4,
+.users-panel h4 {
+    margin: 0;
+}
+
+.account-panel p {
+    margin: 0;
+    font-size: var(--font-size-md);
+}
+
+.account-form {
+    display: grid;
+    gap: 10px;
+    max-width: 360px;
+}
+
+.account-hint,
+.users-dim {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-dim);
+}
+
+.account-ok {
+    color: var(--color-accent);
+}
+
+.users-invite {
+    display: grid;
+    gap: 10px;
+    max-width: 420px;
+}
+
+.users-link {
+    border: 1px solid var(--color-accent);
+    background: var(--color-accent-soft);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    display: grid;
+    gap: 8px;
+    font-size: var(--font-size-md);
+}
+
+.users-link p {
+    margin: 0;
+}
+
+.users-link-row {
+    display: flex;
+    gap: 6px;
+}
+
+.users-link-row input {
+    flex: 1;
+}
+
+.users-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+    font-size: var(--font-size-md);
+}
+
+.users-list li {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.users-table-wrap {
+    overflow-x: auto;
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-md);
+}
+
+.users-table th,
+.users-table td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    white-space: nowrap;
+}
+
+.users-table th {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--color-text-dim);
+}
+
+.users-disabled td {
+    color: var(--color-text-dim);
+}
+
+.users-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.users-danger {
+    color: var(--color-danger);
+}
+
+/* Header: who's signed in — opens Settings → Account. Also the way to
+   reach Settings on narrow screens, where the sidebar is hidden. */
+.header-account-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 8px;
+    padding: 4px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    max-width: 160px;
+}
+
+.header-account-btn:hover {
+    background: var(--hover-bg);
+}
+
+.header-account-btn span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

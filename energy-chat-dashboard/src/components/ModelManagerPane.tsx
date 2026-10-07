@@ -22,6 +22,8 @@ type Props = {
     onAutoLoadModelChange?: (v: boolean) => void;
     modelLoading?: boolean;
     modelLoadTarget?: string | null;
+    /* Download, delete, create and preload models — admins only */
+    canManageModels?: boolean;
 };
 
 export default function ModelManagerPane({
@@ -36,6 +38,7 @@ export default function ModelManagerPane({
     onAutoLoadModelChange,
     modelLoading,
     modelLoadTarget,
+    canManageModels = false,
 }: Props) {
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -150,6 +153,8 @@ export default function ModelManagerPane({
                 <div style={{ fontSize: 12, whiteSpace: "nowrap" }}>
                     {defaultInstalled ? (
                         <span style={{ opacity: 0.8 }}>Default installed</span>
+                    ) : !canManageModels ? (
+                        <span style={{ opacity: 0.8 }}>Not installed</span>
                     ) : (
                         <button
                             type="button"
@@ -174,7 +179,8 @@ export default function ModelManagerPane({
         alignContent: "flex-start",
       }}
     >
-      {/* Model Loading */}
+      {/* Model Loading — preloading is admin-only */}
+      {canManageModels && (
       <section className="panel">
         <div className="panel-body" style={{ display: "grid", gap: 10 }}>
           <h3 style={{ margin: 0 }}>Model Loading</h3>
@@ -218,6 +224,7 @@ export default function ModelManagerPane({
           </div>
         </div>
       </section>
+      )}
 
       {/* Installed models */}
       <section className="panel">
@@ -246,8 +253,10 @@ export default function ModelManagerPane({
         <div className="panel-body" style={{ display: "grid", gap: 8 }}>
           <h3 style={{ margin: 0 }}>Mode defaults</h3>
           <p style={{ fontSize: 12, margin: 0 }}>
-            Each mode has a backend-defined default model. If a model is not installed yet, use the
-            Download button to pull it into Ollama.
+            Each mode has a backend-defined default model.
+            {canManageModels
+              ? " If a model is not installed yet, use the Download button to pull it into Ollama."
+              : " Models that aren't installed can be added by an admin."}
           </p>
                   {modeDefaults ? (
                       <div style={{ display: "grid", gap: 4 }}>
@@ -309,7 +318,8 @@ export default function ModelManagerPane({
         </div>
       </section>
 
-      {/* Advanced: create / delete */}
+      {/* Advanced: create / delete — admins only */}
+      {canManageModels && (
       <section className="panel">
         <div className="panel-body" style={{ display: "grid", gap: 12 }}>
           <h3 style={{ margin: 0 }}>Advanced</h3>
@@ -350,6 +360,7 @@ export default function ModelManagerPane({
           </div>
         </div>
       </section>
+      )}
     </div>
   );
 }

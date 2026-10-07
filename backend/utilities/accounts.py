@@ -297,6 +297,7 @@ def _new_session(user_id: int) -> str:
             "INSERT INTO sessions (token_hash, user_id, created_at, expires_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
             (_hash_token(token), user_id, now, now + SESSION_DAYS * 86400, now),
         )
+        db.execute("UPDATE users SET last_seen_at = ? WHERE id = ?", (now, user_id))
         db.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
     return token
 

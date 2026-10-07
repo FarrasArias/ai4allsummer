@@ -17,6 +17,8 @@ type Props = {
     onHistoryChange?: (history: Msg[]) => void;
     onModelChange?: (model: string) => void;
     onFileCountChange?: (count: number) => void;
+    /* Agent mode runs shell commands on the host Mac: only offered there */
+    allowAgent?: boolean;
 };
 
 type ThinkingMode = "fast" | "deep";
@@ -34,6 +36,7 @@ export default function ChatPane({
     onHistoryChange,
     onModelChange,
     onFileCountChange,
+    allowAgent = false,
 }: Props) {
     const [messages, setMessages] = useState<Msg[]>(() => {
         try {
@@ -263,14 +266,16 @@ export default function ChatPane({
                             Deep think
                         </button>
 
-                        <button
-                            className={`input-pill ${agentMode ? "active" : ""}`}
-                            onClick={() => setAgentMode(!agentMode)}
-                            title={agentMode ? "Disable agent mode" : "Enable agent mode (tools)"}
-                        >
-                            <span className="input-pill-icon">🤖</span>
-                            Agent
-                        </button>
+                        {allowAgent && (
+                            <button
+                                className={`input-pill ${agentMode ? "active" : ""}`}
+                                onClick={() => setAgentMode(!agentMode)}
+                                title={agentMode ? "Disable agent mode" : "Enable agent mode (tools)"}
+                            >
+                                <span className="input-pill-icon">🤖</span>
+                                Agent
+                            </button>
+                        )}
 
                         <button
                             className="input-pill"

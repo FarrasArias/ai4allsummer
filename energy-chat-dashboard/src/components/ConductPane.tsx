@@ -84,8 +84,10 @@ function parseSnippets(md: string): Snippet[] {
 }
 
 function LogCard({ log, onOpen, onReveal, onIndex, onUnindex, busy, indexed, status,
-                  expanded, onToggleExpand, content }: {
+                  expanded, onToggleExpand, content, canOpenFiles }: {
     log: ConductLogSummary;
+    /** Open/reveal act on the host Mac's screen — only offered there. */
+    canOpenFiles: boolean;
     onOpen: () => void;
     onReveal: () => void;
     onIndex: () => void;
@@ -117,12 +119,16 @@ function LogCard({ log, onOpen, onReveal, onIndex, onUnindex, busy, indexed, sta
                 >
                     {expanded ? "Hide" : "View"}
                 </button>
-                <button type="button" className="conduct-log-action" onClick={onOpen}>
-                    Open in editor
-                </button>
-                <button type="button" className="conduct-log-action" onClick={onReveal}>
-                    Reveal in folder
-                </button>
+                {canOpenFiles && (
+                    <>
+                        <button type="button" className="conduct-log-action" onClick={onOpen}>
+                            Open in editor
+                        </button>
+                        <button type="button" className="conduct-log-action" onClick={onReveal}>
+                            Reveal in folder
+                        </button>
+                    </>
+                )}
                 <button
                     type="button"
                     className="conduct-log-action"
@@ -151,7 +157,9 @@ function LogCard({ log, onOpen, onReveal, onIndex, onUnindex, busy, indexed, sta
             {expanded && (
                 <div className="conduct-log-reader">
                     <p className="conduct-log-reader-note">
-                        Read-only — use <strong>Open in editor</strong> to change it.
+                        {canOpenFiles
+                            ? <>Read-only — use <strong>Open in editor</strong> to change it.</>
+                            : "Read-only."}
                     </p>
                     {content === null ? (
                         <p className="conduct-empty-note">Loading…</p>
@@ -166,7 +174,7 @@ function LogCard({ log, onOpen, onReveal, onIndex, onUnindex, busy, indexed, sta
     );
 }
 
-export default function ConductPane({ chatModel }: { chatModel?: string | null }) {
+export default function ConductPane({ chatModel, canOpenFiles = false }: { chatModel?: string | null; canOpenFiles?: boolean }) {
     const [reference, setReference] = useState("");
     const [snippetsMd, setSnippetsMd] = useState("");
     const [loaded, setLoaded] = useState(false);
@@ -354,6 +362,7 @@ export default function ConductPane({ chatModel }: { chatModel?: string | null }
                                     log={log}
                                     onOpen={() => handleOpenLog(log, false)}
                                     onReveal={() => handleOpenLog(log, true)}
+                                    canOpenFiles={canOpenFiles}
                                     onIndex={() => handleIndexLog(log)}
                                     onUnindex={() => handleUnindexLog(log)}
                                     busy={busy?.slug === log.slug ? busy.kind : null}

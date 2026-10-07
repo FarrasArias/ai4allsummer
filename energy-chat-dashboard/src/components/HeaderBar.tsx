@@ -24,11 +24,18 @@ type Props = {
     showLogTitleField?: boolean;
     /** Slug of the log this session is already appending to, if any. */
     logSlug?: string | null;
+
+    /* Who's using the app ("This Mac" at the host); opens Settings → Account */
+    accountLabel?: string;
+    onOpenAccount?: () => void;
 };
 
 /* ── Inline SVG icons (monochrome, currentColor) ── */
 const svgProps = { xmlns: "http://www.w3.org/2000/svg", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
+function IconUser({ size = 16 }: { size?: number }) {
+    return <svg width={size} height={size} viewBox="0 0 16 16" {...svgProps}><circle cx="8" cy="5" r="3" /><path d="M2.5 14.5c.6-2.8 2.9-4.5 5.5-4.5s4.9 1.7 5.5 4.5" /></svg>;
+}
 function IconChat({ size = 16 }: { size?: number }) {
     return <svg width={size} height={size} viewBox="0 0 16 16" {...svgProps}><path d="M2.5 2h11A1.5 1.5 0 0115 3.5v7A1.5 1.5 0 0113.5 12H5.5L2 15V3.5A1.5 1.5 0 013.5 2z" /></svg>;
 }
@@ -137,6 +144,8 @@ export default function HeaderBar({
     logTitleDefault,
     showLogTitleField,
     logSlug,
+    accountLabel,
+    onOpenAccount,
 }: Props) {
     const [logOpen, setLogOpen] = useState(false);
     const totalWh = typeof sessionTotalWh === "number" ? sessionTotalWh : 0;
@@ -156,6 +165,17 @@ export default function HeaderBar({
                     <span className="energy-icon"><IconBolt size={12} /></span>
                     <span>{grade} · {totalWh > 0 ? `${totalWh.toFixed(2)} Wh` : "0 Wh"}</span>
                 </div>
+                {accountLabel && (
+                    <button
+                        type="button"
+                        className="header-account-btn"
+                        onClick={onOpenAccount}
+                        title="Account and settings"
+                    >
+                        <IconUser size={12} />
+                        <span>{accountLabel}</span>
+                    </button>
+                )}
             </div>
 
             {/* ── Row 2: meta + model + actions ── */}

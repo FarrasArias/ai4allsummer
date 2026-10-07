@@ -472,6 +472,29 @@ The claw agent itself is untouched — stage 2 puts it in a sandbox.
   those keys. Preferences (theme, models, study settings) stay.
 - Study settings (`participantId`) unchanged; per-browser as now.
 
+### As built (step 6)
+
+- `AuthGate` (the new root in `main.tsx`) asks `/api/me` and shows the sign-in screen, an
+  invite or reset page, or the app. A 401 from any API call fires `uness:signed-out` and returns
+  to sign-in (tested: disabling a signed-in user sends them there on their next action).
+- **The account control is in the header, not the sidebar footer.** The sidebar is hidden below
+  768 px wide, so a sidebar-only control would leave phone users unable to reach Settings or sign
+  out. The header button ("This Mac" at the host, the username online) opens Settings → Account.
+  Follow-up, not in this stage: on phones the other tabs still can't be reached (pre-existing —
+  the sidebar is the only navigation).
+- Settings → Account (sign out, change/set password) and Settings → Users (admins: invite links
+  with Copy, pending invites, people with Make/Remove admin, Disable/Enable, Reset link, Delete).
+  Links built at the host before `UNESS_PUBLIC_HOST` is set carry a note that they only work there.
+- Hidden when the capability is off: Code tab, Agent button, Testing tab, model preload /
+  download / create / delete ("Not installed" shown instead), Conduct Open / Reveal.
+- Dropped: the header "Server busy" indicator. Each request already shows "Waiting in line —
+  N ahead of you" where its answer will appear; `GET /api/queue` stays for later use.
+- Browser storage: chat drafts, pinned chats and image state are cleared on sign-out and when a
+  different user signs in on the same browser (`session.ts`).
+- Vite's dev proxy keeps the browser's `Host` header (`changeOrigin: false`) so invite/reset links
+  made in dev point at the dev server, not the backend port.
+- An account's "last seen" is also updated at sign-in, not only hourly while a session is used.
+
 ---
 
 ## 8. Serving and running as a service

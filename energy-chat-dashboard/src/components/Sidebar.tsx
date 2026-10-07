@@ -60,6 +60,9 @@ type Props = {
 
     /* Conduct — hidden when the Settings toggle is off */
     showConductTools?: boolean;
+
+    /* Code — hidden online, where it's locked (it runs the agent) */
+    showCodeTab?: boolean;
 };
 
 /* ═══════════════════════════════════════════════
@@ -288,6 +291,7 @@ export default function Sidebar({
     onThemeChange,
     onSearch,
     showConductTools = true,
+    showCodeTab = true,
 }: Props) {
     const [filter, setFilter] = useState(FILTER_ALL);
     const [searchText, setSearchText] = useState("");
@@ -424,6 +428,7 @@ export default function Sidebar({
                 <nav className="sidebar-nav">
                     {(["chat", "vibe", "web", "image", "conduct"] as const)
                         .filter((mode) => mode !== "conduct" || showConductTools)
+                        .filter((mode) => mode !== "vibe" || showCodeTab)
                         .map((mode) => (
                         <button
                             key={mode}
