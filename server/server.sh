@@ -44,6 +44,24 @@ need_setup() {
 
 service_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
 
+# bootout returns before the job is fully gone; loading it again too soon
+# fails with "Bootstrap failed: 5: Input/output error"
+stop_service() {
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+    for _ in $(seq 1 30); do
+        service_loaded || return 0
+        sleep 0.5
+    done
+}
+
+start_service() {
+    for _ in 1 2 3 4 5; do
+        launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null && return 0
+        sleep 2
+    done
+    launchctl bootstrap "$DOMAIN" "$PLIST"  # last try, showing the error
+}
+
 port_busy() { lsof -ti "tcp:$1" -sTCP:LISTEN >/dev/null 2>&1; }
 
 build_frontend() {
@@ -100,8 +118,7 @@ cmd_install() {
     need_setup
     if service_loaded; then
         say "Replacing the running service..."
-        launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-        sleep 2
+        stop_service
     fi
     ports_free
     build_frontend
@@ -143,7 +160,7 @@ cmd_install() {
 </plist>
 EOF
 
-    launchctl bootstrap "$DOMAIN" "$PLIST"
+    start_service || fail "macOS wouldn't start the service. Try again: server/server.sh install"
     if wait_healthy; then
         echo ""
         say "U.ness is running in the background, and will start again when you log in."
@@ -157,7 +174,7 @@ EOF
 
 cmd_uninstall() {
     if service_loaded; then
-        launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+        stop_service
         say "Stopped the background service."
     else
         say "The background service wasn't running."
