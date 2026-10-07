@@ -265,13 +265,13 @@ export default function ConductPane({ chatModel, canOpenFiles = false }: { chatM
 
     async function handleIndexLog(log: ConductLogSummary) {
         setBusy({ slug: log.slug, kind: "index" });
-        const res = await indexConductLog(log.slug, chatModel ?? undefined)
-            .catch(() => ({ error: "failed" as const }));
+        const res: Awaited<ReturnType<typeof indexConductLog>> =
+            await indexConductLog(log.slug, chatModel ?? undefined).catch(() => ({ error: "failed" }));
         setBusy(null);
 
         let text: string;
         let tone: "ok" | "error" = "ok";
-        if ("error" in res && res.error) { text = "Couldn't add"; tone = "error"; }
+        if (res.error) { text = "Couldn't add"; tone = "error"; }
         else if (res.skipped) text = "Already in context";
         else if (typeof res.chunks === "number") text = `Added · ${res.chunks} sections`;
         else text = "Added";

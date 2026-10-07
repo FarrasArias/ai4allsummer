@@ -32,6 +32,15 @@ if [ ! -d "$ROOT/energy-chat-dashboard/node_modules" ]; then
     exit 1
 fi
 
+# The background server (server/server.sh install) uses the same ports, and
+# this script force-frees them below — launchd would just restart it.
+if launchctl print "gui/$(id -u)/com.uness.server" >/dev/null 2>&1; then
+    echo "  [X] U.ness is already running as a background server."
+    echo "      Open http://localhost:8000, or stop it with: server/server.sh uninstall"
+    echo ""
+    exit 1
+fi
+
 # Cleanup function to kill child processes on exit
 cleanup() {
     echo ""

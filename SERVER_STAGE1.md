@@ -546,6 +546,31 @@ Standalone apps from tailscale.com don't. It also runs before login, which suits
 `UNESS_MAX_UPLOAD_MB=25`, `UNESS_MAX_JOB_SECONDS=600`, `UNESS_WEB_DAILY_LIMIT=30`,
 `UNESS_CORS_ORIGINS=`.
 
+### As built (step 7)
+
+- **One script, `server/server.sh`**, instead of three: `start` (foreground), `install`
+  (LaunchAgent `com.uness.server`: runs at login, restarts on crash, logs to
+  `backend/userdata/logs/server.log`), `uninstall`, `status`, `logs`. It rebuilds the app when
+  sources are newer than the build, starts Ollama with `brew services` if it isn't running, refuses
+  if ports 8000/8100 are taken (e.g. by `./start.sh`), and reads the ports from `backend/.env`.
+- **Keeping awake is done by `serve.py` itself**: it starts `caffeinate -i -s -w <its pid>`, which
+  ends when the server does however it stops. (Wrapping the server in `caffeinate` from launchd
+  could leave the server running after `uninstall`.) `UNESS_KEEP_AWAKE=0` turns it off.
+- `serve.py` has uvicorn's access log off: it grows without bound and would record invite/reset
+  tokens (they're in the link path). Errors are still logged.
+- The backend serves `energy-chat-dashboard/dist` when it exists: `/assets` as static files,
+  any other non-`/api` path → the file if it's in the build, else `index.html` (`no-cache`).
+  Path traversal attempts get `index.html` or 404.
+- Ollama's `OLLAMA_KEEP_ALIVE=30m` was dropped: `brew services` has no clean way to set it.
+  Ollama's default unloads a model after 5 idle minutes, so the first prompt after a quiet spell
+  includes load time in its energy — as it always has.
+- Tailscale (macOS, open-source CLI via Homebrew, as in the README): `brew install --formula
+  tailscale`, `sudo brew services start tailscale`, `sudo tailscale up`, `sudo tailscale funnel
+  --bg 8100`. Not yet verified: whether Funnel streams answers or buffers them, and which `Host`
+  header it forwards (the `Host` check accepts either the public name or loopback on 8100).
+- The 4 old TypeScript errors are fixed (`App.tsx` `useRef` needs an initial value in React 19;
+  Conduct's error fallback now has the success type), so `npm run build` passes.
+
 ### Backups
 
 Everything a user creates is under `backend/userdata/` plus the owner's legacy folders. README

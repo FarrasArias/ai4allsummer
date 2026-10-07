@@ -133,7 +133,7 @@ export default function App() {
     });
 
     const [messages, setMessages] = useState<Msg[]>([]);
-    const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const activeChatNameRef = useRef("");
     const [copyStatus, setCopyStatus] = useState<string | null>(null);
     const [studyCollapsed, setStudyCollapsed] = useState(true);

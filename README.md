@@ -78,6 +78,94 @@ ollama pull qwen3:1.7b
 - ~4 GB free disk space (for the default model + dependencies)
 - NVIDIA GPU (optional — enables GPU power monitoring in the energy dashboard)
 
+## Running as a server (macOS)
+
+Lets people you invite use the app from anywhere, each with their own private chats, documents
+and energy totals, while their prompts run on this Mac. Design and decisions: `SERVER_STAGE1.md`.
+
+Before you start:
+- The Mac has to stay on, awake and logged in to your account.
+- Prompts run one at a time. Others see "Waiting in line — N ahead of you".
+- You can read everyone's files on this Mac. Tell people that when you invite them.
+- If this is an institution's machine or network, check with IT before putting it online.
+
+### 1. Run it in the background
+
+```bash
+server/server.sh install
+```
+
+This builds the app, makes sure Ollama is running, starts the server, and starts it again at
+every login or if it crashes. While it runs, the Mac won't go to sleep on mains power; on battery,
+or with the lid closed, it still can.
+
+At this Mac the app is **http://localhost:8000**, with no sign-in and every feature.
+
+| Command | |
+|---|---|
+| `server/server.sh status` | what's up, and whether Funnel is on |
+| `server/server.sh logs` | follow the server log |
+| `server/server.sh uninstall` | stop the background server |
+| `server/server.sh start` | run it in the terminal instead (Ctrl+C stops it) |
+
+`./start.sh` (development mode) won't start while the background server is installed.
+
+### 2. Put it online with Tailscale Funnel (once)
+
+Free, and only you need a Tailscale account; people you invite just open a link. On macOS,
+Funnel needs Tailscale's open-source command-line version from Homebrew. The App Store app and
+the app from tailscale.com don't support Funnel, so quit and remove them first if you have them.
+
+```bash
+brew install --formula tailscale
+```
+```bash
+sudo brew services start tailscale
+```
+```bash
+sudo tailscale up
+```
+(prints a link: sign in to create your Tailscale account)
+```bash
+sudo tailscale funnel --bg 8100
+```
+The first time, this prints a link to approve Funnel for your account. Approve it and run the
+command again. It then shows your public address, like `https://my-mac.tail1234.ts.net`. If it
+mentions MagicDNS or HTTPS, turn those on at login.tailscale.com/admin/dns and try again.
+
+Put that address, without `https://`, in `backend/.env`:
+
+```
+UNESS_PUBLIC_HOST=my-mac.tail1234.ts.net
+```
+
+and restart the server so it picks it up: `server/server.sh install`.
+
+Check it: on your phone, with Wi-Fi off, open the address. You should see the sign-in page.
+
+To take it offline again: `sudo tailscale funnel --https=443 off`.
+
+### 3. Invite people
+
+At http://localhost:8000: click **This Mac** (top right) → **Users** → **Create invite link**, and
+send the link yourself. It works once, for 7 days. The same page lets you make someone an admin,
+disable them, send a password-reset link, or delete them.
+
+To sign in as yourself from another device, first set a password under **This Mac → Account**.
+
+### What people online can't use
+
+Agent mode and the Code tab (they run commands on this Mac), the test runner, downloading or
+deleting models, and opening files on this Mac. These still work for you at the Mac.
+
+### Backups and files
+
+- `backend/userdata/`: the accounts database and everyone else's data. Deleted users' files go
+  to `backend/userdata/_deleted/`.
+- Yours stay where they always were: `backend/chats/`, `backend/images/`, `backend/rag_cache/`,
+  `backend/reports/` (energy history) and `conduct_logs/`.
+- Settings: `backend/.env`. Every option is listed in `backend/.env.example`.
+
 ## Notes
 
 - Any issues, send an email to raa60@sfu.ca

@@ -57,6 +57,7 @@ import os
 import io
 import base64
 import json
+from pathlib import Path as _Path
 import time
 import shutil
 import threading
@@ -71,7 +72,8 @@ import fitz  # PyMuPDF (kept for compatibility. TODO: Remove?)
 import ollama
 import requests
 from fastapi import FastAPI, UploadFile, File, Form, Depends, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -1498,3 +1500,25 @@ def agent_reset(model: str = Form(DEFAULT_AGENT_MODEL)):
     """Reset the coding agent session for a given model."""
     claw_reset_agent(model)
     return {"ok": True}
+
+
+# =============================================================
+# The built frontend (server mode, SERVER_STAGE1.md §8)
+# Defined last: the catch-all must never shadow an API route.
+# =============================================================
+_DIST = _Path(__file__).resolve().parent.parent / "energy-chat-dashboard" / "dist"
+
+if (_DIST / "index.html").exists():
+    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def frontend(path: str):
+        """Files from the build, else index.html — so /invite/<token> and
+        /reset/<token> links open the app, which routes them itself."""
+        if path == "api" or path.startswith("api/"):
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        candidate = (_DIST / path).resolve()
+        if path and candidate.is_file() and _DIST.resolve() in candidate.parents:
+            return FileResponse(candidate)
+        # Always re-checked, so a rebuild is picked up on the next page load
+        return FileResponse(_DIST / "index.html", headers={"Cache-Control": "no-cache"})
