@@ -30,7 +30,10 @@ from utilities.doc_loaders import extract_document, segments_to_text
 # API KEY — loaded from OLLAMA_WEB_API_KEY env var
 # (server.py loads backend/.env into the environment at startup)
 # ============================================================
-API_KEY = os.environ.get("OLLAMA_WEB_API_KEY", "")
+# The .env.example placeholder counts as no key, so people get "no key"
+# rather than an authorization error from Ollama
+_KEY = os.environ.get("OLLAMA_WEB_API_KEY", "").strip()
+API_KEY = "" if _KEY == "your-api-key-here" else _KEY
 
 
 # ============================================================
@@ -79,20 +82,7 @@ def web_search(query: str, max_results: int = 5) -> Dict[str, Any]:
     Returns:
       JSON response from Ollama web_search endpoint.
     """
-    if not API_KEY:
-        raise RuntimeError("OLLAMA_WEB_API_KEY is empty; web_search cannot authorize.")
-
-    resp = httpx.post(
-        f"{_OLLAMA_WEB_BASE}/web_search",
-        headers={
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={"query": query, "max_results": max_results},
-        timeout=20.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return _call_web_api("web_search", {"query": query, "max_results": max_results}, API_KEY)
 
 
 def web_fetch(url: str) -> Dict[str, Any]:
@@ -105,16 +95,22 @@ def web_fetch(url: str) -> Dict[str, Any]:
     Returns:
       JSON response from Ollama web_fetch endpoint.
     """
-    if not API_KEY:
-        raise RuntimeError("OLLAMA_WEB_API_KEY is empty; web_fetch cannot authorize.")
+    return _call_web_api("web_fetch", {"url": url}, API_KEY)
 
+
+# The two functions above are also the tool definitions the model sees (their
+# signatures and docstrings), so they can't take a key. Sessions call the API
+# through this with their own key instead — each user's, or the host's.
+def _call_web_api(endpoint: str, payload: Dict[str, Any], api_key: str) -> Dict[str, Any]:
+    if not api_key:
+        raise RuntimeError(
+            "No web search key: add one under Settings → Account, "
+            "or set OLLAMA_WEB_API_KEY in backend/.env."
+        )
     resp = httpx.post(
-        f"{_OLLAMA_WEB_BASE}/web_fetch",
-        headers={
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={"url": url},
+        f"{_OLLAMA_WEB_BASE}/{endpoint}",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json=payload,
         timeout=20.0,
     )
     resp.raise_for_status()
@@ -176,10 +172,15 @@ class WebChatSession:
         self.document_context: str = ""
         self.loaded_files: List[str] = list(self.rag.document_names())
 
-        # tool name -> function
+        # The key web tools use: the host's by default; the server sets the
+        # user's own before each request when they've added one
+        self.api_key = API_KEY
+
+        # tool name -> function (same arguments as the tool definitions)
         self.available_tools = {
-            "web_search": web_search,
-            "web_fetch": web_fetch,
+            "web_search": lambda query, max_results=5: _call_web_api(
+                "web_search", {"query": query, "max_results": max_results}, self.api_key),
+            "web_fetch": lambda url: _call_web_api("web_fetch", {"url": url}, self.api_key),
         }
 
         if not API_KEY:

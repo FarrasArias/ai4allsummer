@@ -22,7 +22,7 @@ _load_dotenv()
 
 from image_v1 import DEFAULT_MODEL as IMAGE_DEFAULT_MODEL
 from vibe_coding import DEFAULT_MODEL as VIBE_DEFAULT_MODEL, VibeCodingChat
-from web_chat import DEFAULT_MODEL as WEB_DEFAULT_MODEL, WebChatSession
+from web_chat import API_KEY as HOST_WEB_KEY, DEFAULT_MODEL as WEB_DEFAULT_MODEL, WebChatSession
 from image_gen import DEFAULT_ENHANCER_MODEL as IMGGEN_DEFAULT_MODEL, ImageGenEngine
 
 # Load model configuration from external config file
@@ -510,8 +510,17 @@ def web_chat_endpoint(
     - The final done event carries per-prompt energy metrics
     """
     ticket = QUEUE.enter(user.id, "a web search")
+    # Their own key if they've added one; otherwise the shared one, capped per
+    # day (D4). Counted once in line, so a 429 doesn't use it up.
+    own_key = accounts.web_key(user)
     try:
-        accounts.count_web_prompt(user)
+        web_key = own_key or _shared_web_key()
+        if not web_key:
+            raise accounts.AccountError(
+                "Web search needs a key. Add your own under Settings → Account."
+            )
+        if not own_key:
+            accounts.count_web_prompt(user)
     except BaseException:
         QUEUE.release(ticket)
         raise
@@ -523,6 +532,7 @@ def web_chat_endpoint(
     upload_dir = new_upload_dir(paths_for(user).uploads / "web") if files else None
     try:
         session = WEB_SESSIONS.get(user, model)
+        session.api_key = web_key
         for f in files or []:
             name = clean_filename(f.filename)
             if os.path.splitext(name)[1].lower() in IMAGE_UPLOAD_EXTS:
@@ -1206,6 +1216,10 @@ def me(request: Request):
         "user": _user_json(user),
         "local": local,
         "has_password": accounts.owner_has_password() if user.is_owner else True,
+        # Their own web search key: whether one is saved, and its last 4 characters
+        "web_key": {"saved": bool(hint := accounts.web_key_hint(user)), "hint": hint},
+        "web_daily_limit": accounts.WEB_DAILY_LIMIT,
+        "web_shared_available": bool(_shared_web_key()),
         "capabilities": {
             # Agent mode and the Code tab run shell commands on this Mac (D13)
             "agent": local,
@@ -1270,6 +1284,26 @@ def auth_change_password(payload: dict, request: Request, user: User = Depends(c
     session = accounts.change_password(user, payload.get("new_password", ""), current)
     response = JSONResponse({"ok": True})
     return response if request.state.is_local else _with_session(response, request, session)
+
+
+def _shared_web_key() -> str:
+    """The key for people without their own: the one the owner saved in
+    Settings → Account, else OLLAMA_WEB_API_KEY from backend/.env."""
+    return accounts.web_key(accounts.owner()) or HOST_WEB_KEY
+
+
+@app.put("/api/account/web-key")
+def account_set_web_key(payload: dict, user: User = Depends(current_user)):
+    """Save the caller's own Ollama web search key (encrypted). The key is
+    never sent back — /api/me shows only its last 4 characters."""
+    accounts.set_web_key(user, payload.get("key", ""))
+    return {"ok": True, "hint": accounts.web_key_hint(user)}
+
+
+@app.delete("/api/account/web-key")
+def account_remove_web_key(user: User = Depends(current_user)):
+    accounts.set_web_key(user, None)
+    return {"ok": True}
 
 
 def _not_self(user_id: int, user: User) -> None:

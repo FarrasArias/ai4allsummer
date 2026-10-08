@@ -153,6 +153,16 @@ disable them, send a password-reset link, or delete them.
 
 To sign in as yourself from another device, first set a password under **This Mac → Account**.
 
+### Web search keys
+
+The Web tab searches through Ollama's web search, which needs an API key (free to create on
+ollama.com, under your account's API keys). Each person can add their own under **Settings →
+Account → Web search key**: it's stored encrypted on this Mac, and only its last 4 characters are
+ever shown. People without their own share yours, up to 30 web prompts a day each
+(`UNESS_WEB_DAILY_LIMIT`). Save yours the same way at this Mac, or put it in `backend/.env` as
+`OLLAMA_WEB_API_KEY`. Keep `backend/userdata/secret.key` with your backups: without it, saved keys
+can't be read and people have to enter them again.
+
 ### Energy report (admins)
 
 **Energy report** in the sidebar (or **This Mac → Users → Energy report** on a phone) shows energy

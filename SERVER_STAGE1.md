@@ -618,6 +618,13 @@ Rough size: steps 1–3 about 2 days, 4–5 about 3 days, 6 about 2 days, 7 abou
   model name comes from the browser, so it could otherwise smuggle a spreadsheet formula.
 - **Energy grade**: computed once (`energyGrade.ts`) for the sidebar and the header, averaging the
   last 5 prompts and deferred until 5 prompts, as `technical_writeup.md` §4.2 describes.
+- **Per-user web search keys** (`secret_box.py`, `accounts.set_web_key` / `web_key`,
+  `PUT/DELETE /api/account/web-key`, Settings → Account): stored Fernet-encrypted in `users.db`
+  with the key in `userdata/secret.key` (0600; `userdata/` is 0700). Never returned — `/api/me`
+  gives only the last 4 characters. Someone with their own key isn't capped (D4); without one they
+  use the shared key: the one the owner saved in the app, else `OLLAMA_WEB_API_KEY`. The
+  `.env.example` placeholder counts as no key. `web_search` / `web_fetch` keep their signatures
+  (they are the model's tool definitions); sessions call the API with their own key.
 - `server/server.sh install` waits for the old service to unload before starting the new one:
   loading it too soon failed with "Bootstrap failed: 5: Input/output error" and left the server
   down until it was started again.

@@ -1932,6 +1932,14 @@ button, .btn {
     color: var(--color-accent);
 }
 
+.account-key-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--font-size-md);
+}
+
 .users-invite {
     display: grid;
     gap: 10px;
