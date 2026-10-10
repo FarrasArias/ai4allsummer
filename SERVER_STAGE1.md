@@ -626,6 +626,9 @@ Rough size: steps 1–3 about 2 days, 4–5 about 3 days, 6 about 2 days, 7 abou
   `http://localhost:8000` would come from loopback on the owner's port and be served as the owner.
   `web_search` / `web_fetch` keep their signatures (they're the model's tool definitions). A short-lived
   per-user Ollama key feature (encrypted in `users.db`) was removed with it; it's in git history.
+- **Web is the owner's only for now**: `POST /api/web/chat` answers 403 for every other account, which
+  the Web pane shows as "Sorry, something went wrong while calling the web-enabled model."
+  `UNESS_WEB_FOR_EVERYONE=1` in `backend/.env` opens it again.
 - `server/server.sh install` waits for the old service to unload before starting the new one:
   loading it too soon failed with "Bootstrap failed: 5: Input/output error" and left the server
   down until it was started again.

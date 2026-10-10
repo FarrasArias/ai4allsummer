@@ -155,6 +155,10 @@ To sign in as yourself from another device, first set a password under **This Ma
 
 ### Web search
 
+**For now the Web tab works only for you (the owner);** everyone else gets "Sorry, something went
+wrong while calling the web-enabled model." To open it to everyone, add `UNESS_WEB_FOR_EVERYONE=1` to
+`backend/.env` and run `server/server.sh install`.
+
 The Web tab needs no API key. It searches with DuckDuckGo (through the `ddgs` package) and reads
 pages directly from this Mac, refusing any address that isn't on the public internet, so nobody
 can use it to reach this Mac or your local network. Search engines may briefly slow down bursts of

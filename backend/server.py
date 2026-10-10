@@ -134,6 +134,9 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 conduct_store.ensure_initialized()
 about_store.ensure_initialized()
 
+# The Web tab is the owner's only until this is set (see web_chat_endpoint)
+WEB_FOR_EVERYONE = os.environ.get("UNESS_WEB_FOR_EVERYONE", "0") == "1"
+
 # Each user's last-used model — the conduct index endpoints' fallback
 _last_model: dict[int, str] = {}
 
@@ -509,6 +512,12 @@ def web_chat_endpoint(
     - Streams real progress events: {"type":"status"|"assistant"|"error"|"done"}
     - The final done event carries per-prompt energy metrics
     """
+    # Web is turned off for everyone but the owner for now; the Web pane shows
+    # its "Sorry, something went wrong…" message for any refused request.
+    # UNESS_WEB_FOR_EVERYONE=1 in backend/.env turns it back on.
+    if not user.is_owner and not WEB_FOR_EVERYONE:
+        return JSONResponse({"error": "Web search is turned off for now."}, status_code=403)
+
     ticket = QUEUE.enter(user.id, "a web search")
 
     # Persist uploads (documents only — images are handled exclusively by the
