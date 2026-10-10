@@ -126,8 +126,6 @@ echo "        Installing Python packages (this may take a minute)..."
 if [ ! -f "$ROOT/backend/.env" ] && [ -f "$ROOT/backend/.env.example" ]; then
     cp "$ROOT/backend/.env.example" "$ROOT/backend/.env"
     echo "        Created backend/.env from template."
-    echo "        (Optional) Edit backend/.env and set OLLAMA_WEB_API_KEY"
-    echo "        to enable web search in the Web tab."
 fi
 
 echo "        Backend ready."

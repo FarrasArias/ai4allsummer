@@ -192,8 +192,6 @@ if not exist "%ROOT%backend\.env" (
     if exist "%ROOT%backend\.env.example" (
         copy /y "%ROOT%backend\.env.example" "%ROOT%backend\.env" >nul
         echo         Created backend\.env from template.
-        echo         ^(Optional^) Edit backend\.env and set OLLAMA_WEB_API_KEY
-        echo         to enable web search in the Web tab.
     )
 )
 

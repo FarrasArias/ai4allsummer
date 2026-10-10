@@ -40,7 +40,7 @@ All approved on 2026-10-05 (D1–D12 as recommended, D13 added later); the rest 
 | D1 | How the owner uses the app at the Mac | **No login locally.** Requests on the local listener act as the owner account (admin). |
 | D2 | Where the owner's existing data lives | **Stays where it is** (`backend/chats/`, `backend/images/`, `backend/rag_cache/`, `/conduct_logs/`). Only new users get `backend/userdata/<user>/`. No migration step. |
 | D3 | Model management (pull / delete / create / preload) online | **Admin role, from anywhere.** Lets the owner download a model while away. Regular users only pick from installed models. |
-| D4 | Web tab for online users | Web search spends the owner's `OLLAMA_WEB_API_KEY` quota. **Allowed, with a per-user daily cap** (default 30 web prompts/day, set in `.env`; the owner is exempt). |
+| D4 | Web tab for online users | ~~Shared `OLLAMA_WEB_API_KEY` with a per-user daily cap.~~ **Superseded:** Web needs no key — search through `ddgs` (DuckDuckGo), pages read by this Mac (see *After stage 1*). No daily cap. |
 | D5 | How the energy report file is written | **From the per-prompt meter, tagged with user and mode** — replacing the background accumulator's entries (see §5). Historical entries are kept and attributed to the owner. |
 | D6 | Conduct `reference.md` / `snippets.md` | **Shared, read-only for everyone except the owner.** Logs are per-user. |
 | D7 | Who sees energy analytics | **Each user sees their own; admins can switch to "all users".** |
@@ -618,13 +618,14 @@ Rough size: steps 1–3 about 2 days, 4–5 about 3 days, 6 about 2 days, 7 abou
   model name comes from the browser, so it could otherwise smuggle a spreadsheet formula.
 - **Energy grade**: computed once (`energyGrade.ts`) for the sidebar and the header, averaging the
   last 5 prompts and deferred until 5 prompts, as `technical_writeup.md` §4.2 describes.
-- **Per-user web search keys** (`secret_box.py`, `accounts.set_web_key` / `web_key`,
-  `PUT/DELETE /api/account/web-key`, Settings → Account): stored Fernet-encrypted in `users.db`
-  with the key in `userdata/secret.key` (0600; `userdata/` is 0700). Never returned — `/api/me`
-  gives only the last 4 characters. Someone with their own key isn't capped (D4); without one they
-  use the shared key: the one the owner saved in the app, else `OLLAMA_WEB_API_KEY`. The
-  `.env.example` placeholder counts as no key. `web_search` / `web_fetch` keep their signatures
-  (they are the model's tool definitions); sessions call the API with their own key.
+- **Web search without keys** (`utilities/web_tools.py`): replaced Ollama's web search API, which
+  needs an ollama.com key and has limits. Search goes through the `ddgs` package (DuckDuckGo and
+  other engines); pages are fetched by this Mac. Because that makes the server a fetcher for anyone
+  online, every address must be public: checked before connecting, at each redirect, and the address
+  actually connected to (defeats DNS rebinding); proxies are ignored. Otherwise a request to
+  `http://localhost:8000` would come from loopback on the owner's port and be served as the owner.
+  `web_search` / `web_fetch` keep their signatures (they're the model's tool definitions). A short-lived
+  per-user Ollama key feature (encrypted in `users.db`) was removed with it; it's in git history.
 - `server/server.sh install` waits for the old service to unload before starting the new one:
   loading it too soon failed with "Bootstrap failed: 5: Input/output error" and left the server
   down until it was started again.

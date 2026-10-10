@@ -27,7 +27,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Iterator, Optional
 
-from utilities import secret_box
 from utilities.access import OWNER_NAME, User
 from utilities.user_paths import USERDATA_DIR, paths_for
 
@@ -39,7 +38,6 @@ RESET_HOURS = 24
 MIN_PASSWORD = 10
 MAX_FAILURES = 5
 LOCKOUT_SECONDS = 15 * 60
-WEB_DAILY_LIMIT = int(os.environ.get("UNESS_WEB_DAILY_LIMIT", "30"))
 
 # Usernames double as folder names, so this rule is what keeps them safe on disk
 _USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{2,31}$")
@@ -79,12 +77,6 @@ CREATE TABLE IF NOT EXISTS login_failures (
     ip       TEXT,
     ts       REAL NOT NULL
 );
-CREATE TABLE IF NOT EXISTS usage (
-    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    day         TEXT NOT NULL,
-    web_prompts INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (user_id, day)
-);
 """
 
 
@@ -122,10 +114,6 @@ def init() -> None:
         with _db() as db:
             db.execute("PRAGMA journal_mode = WAL")
             db.executescript(_SCHEMA)
-            # Added after the first release: databases made before need the column
-            columns = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
-            if "web_key" not in columns:
-                db.execute("ALTER TABLE users ADD COLUMN web_key TEXT")  # encrypted (secret_box)
             if db.execute("SELECT 1 FROM users WHERE is_owner = 1").fetchone() is None:
                 db.execute(
                     "INSERT INTO users (username, role, is_owner, created_at) VALUES (?, 'admin', 1, ?)",
@@ -455,57 +443,3 @@ def revoke_invite(invite_id: int) -> None:
     init()
     with _db() as db:
         db.execute("DELETE FROM tokens WHERE id = ? AND kind = 'invite'", (invite_id,))
-
-
-# -- daily web cap (D4) ----------------------------------------------------------------------
-
-def count_web_prompt(user: User) -> None:
-    """Count one web prompt against the user's daily cap. The owner, whose
-    API key it is, has no cap. Raises AccountError when the cap is reached."""
-    if user.is_owner:
-        return
-    init()
-    day = time.strftime("%Y-%m-%d")
-    with _db() as db:
-        row = db.execute("SELECT web_prompts FROM usage WHERE user_id = ? AND day = ?", (user.id, day)).fetchone()
-        used = row["web_prompts"] if row else 0
-        if used >= WEB_DAILY_LIMIT:
-            raise AccountError(
-                f"You've used today's {WEB_DAILY_LIMIT} web searches on the shared key. They reset at "
-                "midnight — or add your own key under Settings → Account to keep going."
-            )
-        db.execute(
-            "INSERT INTO usage (user_id, day, web_prompts) VALUES (?, ?, 1) "
-            "ON CONFLICT (user_id, day) DO UPDATE SET web_prompts = web_prompts + 1",
-            (user.id, day),
-        )
-
-
-# -- people's own web search keys ----------------------------------------------------------
-
-def set_web_key(user: User, key: Optional[str]) -> None:
-    """Save (encrypted) or, with None, remove the user's own Ollama web key."""
-    if key is not None:
-        key = key.strip()
-        if not 8 <= len(key) <= 512 or any(c.isspace() for c in key):
-            raise AccountError("That doesn't look like an API key. Paste it exactly as Ollama shows it.")
-    init()
-    with _db() as db:
-        db.execute(
-            "UPDATE users SET web_key = ? WHERE id = ?",
-            (secret_box.encrypt(key) if key else None, user.id),
-        )
-
-
-def web_key(user: User) -> Optional[str]:
-    """The user's own web key, decrypted, or None."""
-    init()
-    with _db() as db:
-        row = db.execute("SELECT web_key FROM users WHERE id = ?", (user.id,)).fetchone()
-    return secret_box.decrypt(row["web_key"]) if row and row["web_key"] else None
-
-
-def web_key_hint(user: User) -> Optional[str]:
-    """Enough to recognise a saved key — never the key itself."""
-    key = web_key(user)
-    return f"…{key[-4:]}" if key else None

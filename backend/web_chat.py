@@ -2,8 +2,9 @@
 """
 Web-aware chat helper using Ollama tool calling.
 
-- Implements web_search/web_fetch tools by calling Ollama's web APIs directly
-  (Authorization: Bearer <OLLAMA_WEB_API_KEY>).
+- Implements web_search/web_fetch tools without any API key: search through
+  the ddgs library, pages read by this Mac directly (utilities/web_tools.py,
+  which refuses anything that isn't a public internet address).
 - Supports uploaded documents via the shared RagStore (retrieval per question),
   with full-text fallback when the embedding model is unavailable.
 - ask_events() yields real orchestration status events ("Searching the web
@@ -16,24 +17,13 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Union
 import json
 import logging
-import os
 
-import httpx
 from ollama import chat as ollama_chat
 
 from utilities.prompt_config import get_system_prompt
 from utilities.rag_store import RagStore
 from utilities.doc_loaders import extract_document, segments_to_text
-
-
-# ============================================================
-# API KEY — loaded from OLLAMA_WEB_API_KEY env var
-# (server.py loads backend/.env into the environment at startup)
-# ============================================================
-# The .env.example placeholder counts as no key, so people get "no key"
-# rather than an authorization error from Ollama
-_KEY = os.environ.get("OLLAMA_WEB_API_KEY", "").strip()
-API_KEY = "" if _KEY == "your-api-key-here" else _KEY
+from utilities import web_tools
 
 
 # ============================================================
@@ -64,10 +54,6 @@ When you need to read a specific webpage, use the web_fetch tool.
 Be concise and accurate in your responses.
 """
 
-# Ollama web tools endpoints
-_OLLAMA_WEB_BASE = "https://ollama.com/api"
-
-
 # ============================================================
 # TOOL IMPLEMENTATIONS (these are what the model can call)
 # ============================================================
@@ -80,9 +66,9 @@ def web_search(query: str, max_results: int = 5) -> Dict[str, Any]:
       max_results: number of results to return
 
     Returns:
-      JSON response from Ollama web_search endpoint.
+      Search results: title, url and a short snippet for each.
     """
-    return _call_web_api("web_search", {"query": query, "max_results": max_results}, API_KEY)
+    return web_tools.search(query, max_results)
 
 
 def web_fetch(url: str) -> Dict[str, Any]:
@@ -93,28 +79,9 @@ def web_fetch(url: str) -> Dict[str, Any]:
       url: URL to fetch
 
     Returns:
-      JSON response from Ollama web_fetch endpoint.
+      The page's title, text content and links.
     """
-    return _call_web_api("web_fetch", {"url": url}, API_KEY)
-
-
-# The two functions above are also the tool definitions the model sees (their
-# signatures and docstrings), so they can't take a key. Sessions call the API
-# through this with their own key instead — each user's, or the host's.
-def _call_web_api(endpoint: str, payload: Dict[str, Any], api_key: str) -> Dict[str, Any]:
-    if not api_key:
-        raise RuntimeError(
-            "No web search key: add one under Settings → Account, "
-            "or set OLLAMA_WEB_API_KEY in backend/.env."
-        )
-    resp = httpx.post(
-        f"{_OLLAMA_WEB_BASE}/{endpoint}",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=20.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return web_tools.fetch(url)
 
 
 def _normalize_tool_args(tool_args: Union[str, Dict[str, Any], None]) -> Dict[str, Any]:
@@ -172,22 +139,11 @@ class WebChatSession:
         self.document_context: str = ""
         self.loaded_files: List[str] = list(self.rag.document_names())
 
-        # The key web tools use: the host's by default; the server sets the
-        # user's own before each request when they've added one
-        self.api_key = API_KEY
-
-        # tool name -> function (same arguments as the tool definitions)
+        # tool name -> function
         self.available_tools = {
-            "web_search": lambda query, max_results=5: _call_web_api(
-                "web_search", {"query": query, "max_results": max_results}, self.api_key),
-            "web_fetch": lambda url: _call_web_api("web_fetch", {"url": url}, self.api_key),
+            "web_search": web_search,
+            "web_fetch": web_fetch,
         }
-
-        if not API_KEY:
-            logger.warning(
-                "OLLAMA_WEB_API_KEY is empty. Web tools will fail with "
-                "authorization errors — set it in backend/.env"
-            )
 
     # ── documents ──
     def add_document(self, file_path: str) -> Dict[str, Any]:

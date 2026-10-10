@@ -780,9 +780,6 @@ export type Me = {
   local: boolean;          // at the host Mac: no login, every feature
   has_password?: boolean;
   capabilities?: Capabilities;
-  web_key?: { saved: boolean; hint: string | null };  // their own; only the last 4 characters
-  web_daily_limit?: number;                           // web prompts a day on the shared key
-  web_shared_available?: boolean;                     // is there a shared key at all
 };
 
 async function sendJson<T = any>(path: string, body?: unknown, method = "POST"): Promise<T> {
@@ -807,9 +804,6 @@ export const login = (username: string, password: string) =>
 export const logout = () => sendJson(`/api/auth/logout`);
 export const changePassword = (newPassword: string, currentPassword?: string) =>
   sendJson(`/api/auth/password`, { new_password: newPassword, current_password: currentPassword });
-
-export const saveWebKey = (key: string) => sendJson<{ ok: boolean; hint: string }>(`/api/account/web-key`, { key }, "PUT");
-export const removeWebKey = () => sendJson(`/api/account/web-key`, undefined, "DELETE");
 
 export const getInvite = (token: string) =>
   getJson<{ role: string; note: string }>(`/api/auth/invite/${encodeURIComponent(token)}`);

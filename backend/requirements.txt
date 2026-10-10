@@ -26,8 +26,8 @@ pillow>=10.0
 requests>=2.28
 httpx>=0.24
 
-# Encrypting stored secrets (users' own web search keys)
-cryptography>=42
+# Web search for the Web tab, no API key (DuckDuckGo and other engines)
+ddgs>=9
 
 # System monitoring
 psutil>=5.9

@@ -186,7 +186,7 @@ function InvitePage({ token, onDone }: { token: string; onDone: () => void }) {
     return (
         <AuthShell
             title="You're invited"
-            subtitle={<>Choose a username and password for Uness{info.role === "admin" ? " (as an admin)" : ""}. Your chats and documents stay private to you; the person running this Mac can still see the files on it, and use any API key you add.</>}
+            subtitle={<>Choose a username and password for Uness{info.role === "admin" ? " (as an admin)" : ""}. Your chats and documents stay private to you; the person running this Mac can still see the files on it.</>}
         >
             <form className="auth-form" onSubmit={submit}>
                 <Field label="Username" value={username} onChange={setUsername} autoComplete="username" autoFocus

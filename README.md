@@ -153,15 +153,12 @@ disable them, send a password-reset link, or delete them.
 
 To sign in as yourself from another device, first set a password under **This Mac → Account**.
 
-### Web search keys
+### Web search
 
-The Web tab searches through Ollama's web search, which needs an API key (free to create on
-ollama.com, under your account's API keys). Each person can add their own under **Settings →
-Account → Web search key**: it's stored encrypted on this Mac, and only its last 4 characters are
-ever shown. People without their own share yours, up to 30 web prompts a day each
-(`UNESS_WEB_DAILY_LIMIT`). Save yours the same way at this Mac, or put it in `backend/.env` as
-`OLLAMA_WEB_API_KEY`. Keep `backend/userdata/secret.key` with your backups: without it, saved keys
-can't be read and people have to enter them again.
+The Web tab needs no API key. It searches with DuckDuckGo (through the `ddgs` package) and reads
+pages directly from this Mac, refusing any address that isn't on the public internet, so nobody
+can use it to reach this Mac or your local network. Search engines may briefly slow down bursts of
+automated searches; if that happens, Web says so and you can try again a minute later.
 
 ### Energy report (admins)
 
