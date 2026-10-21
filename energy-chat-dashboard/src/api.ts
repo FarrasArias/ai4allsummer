@@ -114,6 +114,8 @@ export type InferenceMetrics = {
   input_tokens?: number;
   output_tokens?: number;
   user_prompt_tokens?: number;
+  /* The same answer on GPT-4o, estimated (backend/utilities/cloud_estimate.py) */
+  cloud_wh?: number | null;
 };
 
 export function streamChat(
@@ -147,6 +149,7 @@ export function streamChat(
             input_tokens: payload.input_tokens,
             output_tokens: payload.output_tokens,
             user_prompt_tokens: payload.user_prompt_tokens,
+            cloud_wh: payload.cloud_wh,
           };
           onComplete?.(metrics);
         }
@@ -159,6 +162,7 @@ export function streamImageAnalysis(
   { prompt, model, image }: { prompt: string; model: string; image: File },
   onDelta: (text: string) => void,
   onStatus?: (text: string) => void,
+  onDone?: (metrics: InferenceMetrics) => void,
 ) {
   const body = new FormData();
   body.append("prompt", prompt);
@@ -170,6 +174,13 @@ export function streamImageAnalysis(
       if (payload.error) throw new ApiError(payload.error);
       if (payload.status) onStatus?.(payload.status);
       if (payload.delta) onDelta(payload.delta);
+      if (payload.done) {
+        onDone?.({
+          inference_time_ms: payload.inference_time_ms,
+          energy_wh: payload.energy_wh ?? 0,
+          cloud_wh: payload.cloud_wh,
+        });
+      }
     });
   });
 }
@@ -464,7 +475,7 @@ export type WebChatEvent =
   | { type: "status"; text: string }
   | { type: "assistant"; content: string }
   | { type: "error"; error: string }
-  | { type: "done"; energy_wh?: number; inference_time_ms?: number };
+  | { type: "done"; energy_wh?: number; inference_time_ms?: number; cloud_wh?: number | null };
 
 /**
  * Stream a web-chat turn as SSE events (status traces, assistant text, done).

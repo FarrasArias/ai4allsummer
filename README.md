@@ -177,6 +177,23 @@ Everyone sees, above **Session energy** in the sidebar, how many people used U.n
 minutes and what's in line: "1 running, 2 waiting", or "1 ahead of yours" while their own prompt
 waits. Open **Session energy** for the same numbers in detail. Only counts, never names.
 
+### Compared with a cloud AI
+
+Each Chat, Web and Image answer shows the energy it took here and, next to it, an estimate for the
+same answer on GPT-4o: `⚡ 65 mWh · GPT-4o, estimated: ~160 mWh`.
+
+- The estimate scales [Epoch AI's published estimate for GPT-4o](https://epoch.ai/gradient-updates/how-much-energy-does-chatgpt-use)
+  (about 0.3 Wh for a 500-token answer, more for long inputs) by the tokens the answer used: its
+  thinking, the searches and pages read, the image. Conversation the model has already read isn't
+  counted on either side. The method is in `backend/utilities/cloud_estimate.py`.
+- It's an estimate, not a measurement, and a cloud model may write a different (often better)
+  answer. Our figure is this Mac's chips only; the cloud figure includes servers and cooling.
+- Other published figures: Google measured
+  [0.24 Wh for a median Gemini text prompt](https://cloud.google.com/blog/products/infrastructure/measuring-the-environmental-impact-of-ai-inference)
+  (0.14 Wh of it the AI chips), and OpenAI states
+  [0.34 Wh for an average ChatGPT query](https://blog.samaltman.com/the-gentle-singularity).
+  Anthropic hasn't published a figure for Claude.
+
 ### Energy report (admins)
 
 **Energy report** in the sidebar (or **This Mac → Users → Energy report** on a phone) starts with

@@ -607,7 +607,8 @@ export default function Sidebar({
                                 {totalWh > 0 ? `${totalWh.toFixed(2)} Wh` : "0 Wh"}
                             </div>
                             <div className="sidebar-energy-equiv">
-                                ≈ {totalWh > 0 ? Math.round(totalWh / 0.09) : 0} chat replies
+                                {/* A typical 150–300-word reply on qwen3.8:27b is ~0.065 Wh */}
+                                ≈ {totalWh > 0 ? Math.round(totalWh / 0.065) : 0} chat replies
                             </div>
 
                             {/* Grade bar */}
@@ -643,6 +644,13 @@ export default function Sidebar({
                                         <span className="sidebar-energy-row-value">{promptCount}</span>
                                     </div>
                                 )}
+                            </div>
+
+                            {/* Spelled out here because the answers' tooltip doesn't show on phones */}
+                            <div className="sidebar-energy-note" style={{ marginTop: 12 }}>
+                                "GPT-4o, estimated" next to an answer: what the same answer would take
+                                on GPT-4o, from published research (Epoch AI, 2025), scaled by the
+                                answer's tokens. An estimate, not a measurement.
                             </div>
 
                             {activity && (

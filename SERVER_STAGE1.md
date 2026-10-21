@@ -652,6 +652,21 @@ Rough size: steps 1–3 about 2 days, 4–5 about 3 days, 6 about 2 days, 7 abou
   / "**Response (edited)**" in the log and `prompt_edited` / `response_edited` in the sidecar, so
   the log stays honest about what the model actually said. The greeting is no longer captured as a
   "response" when there's been no exchange yet.
+- **Grade recalibrated** (round 2, step 4c): measured 39 prompts on qwen3.8:27b (13 kinds, three
+  runs each; the same prompt varied up to 2× between runs). New cut-offs on the last-5 average:
+  A ≤ 0.02, B ≤ 0.08, C ≤ 0.2, D ≤ 0.4 Wh, E above (were 0.05 / 0.15 / 0.5 / 1.5, under which D and E
+  couldn't happen). "≈ N chat replies" now assumes 0.065 Wh per reply (was 0.09).
+- **Cloud comparison** (round 2, step 4b, wording option 2): each Chat, Web and Image answer shows
+  "⚡ X · GPT-4o, estimated: ~Y" (`utilities/cloud_estimate.py`, `CloudEstimate.tsx`). Y scales Epoch
+  AI's GPT-4o estimate (0.3 Wh per 500-token answer; 2.4 / 40 Wh with 10k / 100k input tokens,
+  fitted as 0.0006·out + 1.95e-4·in + 2e-9·in² Wh) by the tokens the answer processed. Input counts
+  only what's new in the answer: Ollama reports the whole prompt each call but reuses the cached
+  history (a 2,149-token follow-up re-read in 0.3 s vs 20 s cold), so charging the cloud side for
+  history would flatter us. Web sums its model calls; Image counts the image's tokens. The Code tab
+  (agent) shows none. Measured here: about 0.24 mWh per output token vs Epoch's 0.6.
+- The Web tab's greeting described the old Ollama web search service ("Ollama does see your
+  network address"); it now describes ddgs and direct page reads, and replaces the old greeting in
+  conversations browsers had saved.
 - `server/server.sh install` waits for the old service to unload before starting the new one:
   loading it too soon failed with "Bootstrap failed: 5: Input/output error" and left the server
   down until it was started again.

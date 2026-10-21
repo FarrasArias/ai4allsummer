@@ -94,6 +94,7 @@ from utilities.access import (
 from utilities.inference_queue import QUEUE, QueueBusy, QueueTimeout, queued_response
 from utilities import energy
 from utilities import presence
+from utilities import cloud_estimate
 from utilities.energy import EnergyMeter
 from utilities.engine_registry import EngineRegistry
 from utilities.user_paths import InvalidName, paths_for, safe_child
@@ -395,6 +396,8 @@ def chat(
 
         meter = EnergyMeter(user, model, "chat")
         meter.start()
+        previous_prompt_tokens = engine._last_prompt_eval_count
+        answered = False
 
         try:
             for chunk in engine.stream_chat(
@@ -407,6 +410,7 @@ def chat(
                 payload = chunk if isinstance(chunk, dict) else {"delta": chunk}
                 yield f"data: {json.dumps(payload)}\n\n".encode("utf-8")
                 meter.sample()
+            answered = True
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
         finally:
@@ -419,6 +423,10 @@ def chat(
                 "input_tokens": engine._last_prompt_eval_count,
                 "output_tokens": engine._last_eval_count,
                 "user_prompt_tokens": engine._last_user_prompt_tokens,
+                "cloud_wh": cloud_estimate.estimate_wh(
+                    cloud_estimate.new_tokens(engine._last_prompt_eval_count, previous_prompt_tokens),
+                    engine._last_eval_count,
+                ) if answered else None,
             }
             yield f"data: {json.dumps(done_payload)}\n\n".encode("utf-8")
 
@@ -489,7 +497,12 @@ def vibe_code(
         try:
             reply = engine.code(prompt, stream=False)
             energy_wh, inference_time_ms = meter.finish()
-            return {"ok": True, "response": reply, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
+            tokens = engine.answer_tokens
+            return {
+                "ok": True, "response": reply, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms,
+                "input_tokens": tokens["input"], "output_tokens": tokens["output"],
+                "cloud_wh": cloud_estimate.estimate_wh(tokens["input"], tokens["output"]),
+            }
         except Exception as e:
             meter.finish()
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
@@ -576,7 +589,12 @@ def web_chat_endpoint(
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n".encode("utf-8")
         finally:
             energy_wh, inference_time_ms = meter.finish()
-            done = {"type": "done", "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
+            tokens = session.answer_tokens
+            done = {
+                "type": "done", "energy_wh": energy_wh, "inference_time_ms": inference_time_ms,
+                "input_tokens": tokens["input"], "output_tokens": tokens["output"],
+                "cloud_wh": cloud_estimate.estimate_wh(tokens["input"], tokens["output"]),
+            }
             yield f"data: {json.dumps(done)}\n\n".encode("utf-8")
 
     return queued_response(
@@ -850,6 +868,7 @@ def analyze_image(
 
         meter = EnergyMeter(user, model, "image_analysis")
         meter.start()
+        tokens = {"input": 0, "output": 0}
 
         try:
             r = requests.post(
@@ -876,6 +895,10 @@ def analyze_image(
                 meter.sample()
                 try:
                     payload = json.loads(line)
+                    if payload.get("done"):
+                        # One stateless call: the whole prompt, image included, is new
+                        tokens = {"input": payload.get("prompt_eval_count") or 0,
+                                  "output": payload.get("eval_count") or 0}
                     if "response" in payload:
                         yield f"data: {json.dumps({'delta': payload['response']})}\n\n".encode(
                             "utf-8"
@@ -887,7 +910,11 @@ def analyze_image(
             yield f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8")
         finally:
             energy_wh, inference_time_ms = meter.finish()
-            done_payload = {"done": True, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms}
+            done_payload = {
+                "done": True, "energy_wh": energy_wh, "inference_time_ms": inference_time_ms,
+                "input_tokens": tokens["input"], "output_tokens": tokens["output"],
+                "cloud_wh": cloud_estimate.estimate_wh(tokens["input"], tokens["output"]),
+            }
             yield f"data: {json.dumps(done_payload)}\n\n".encode("utf-8")
 
     return queued_response(ticket, _gen, _chat_event)

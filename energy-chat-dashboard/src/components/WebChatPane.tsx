@@ -1,23 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import ChatHistory from "./ChatHistory";
 import ChatInput from "./ChatInput";
-import { streamWebChat, resetWeb, getRagDocuments, type WebChatEvent } from "../api";
+import { streamWebChat, resetWeb, getRagDocuments, type InferenceMetrics, type WebChatEvent } from "../api";
 
-type Msg = { role: "user" | "bot"; text: string };
+type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
 
 type Props = {
   model?: string;
 };
 
+const GREETING_START = "Ask a question and I'll search the web when it helps answer accurately.";
+
+// How Web search works: backend/utilities/web_tools.py
 const WEB_GREETING: Msg = {
   role: "bot",
   text:
-    "Ask a question and I'll search the web when it helps answer accurately.\n\n" +
-    "**Warning:** Everything else in Uness runs locally. The web tool partially does not. " +
-    "We use Ollama's web search service, which they state does not retain queries. " +
-    "Queries currently run through our Uness account, so they are not tied to you " +
-    "individually; however, Ollama does see your network address. All reasoning and " +
-    "generation still run on your machine — search results come back here and go no further.",
+    GREETING_START + "\n\n" +
+    "**Note:** Everything else in Uness stays on the computer running it. Web is the " +
+    "exception: searches go to DuckDuckGo and other search engines, and pages are read from " +
+    "their websites. They see that computer's address, never who asked. Before a search is " +
+    "sent, emails, phone numbers and long ID or card numbers are removed, and the status line " +
+    "shows exactly what was searched. The thinking and writing still happen on that computer.",
 };
 
 export default function WebChatPane({ model }: Props) {
@@ -26,7 +29,11 @@ export default function WebChatPane({ model }: Props) {
       const saved = localStorage.getItem("ai4all.web.messages");
       if (saved) {
         const parsed = JSON.parse(saved) as Msg[];
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Saved conversations keep the greeting they started with; show the current one
+          if (parsed[0].role === "bot" && parsed[0].text.startsWith(GREETING_START)) parsed[0] = WEB_GREETING;
+          return parsed;
+        }
       }
     } catch { /* ignore */ }
     return [WEB_GREETING];
@@ -82,9 +89,19 @@ export default function WebChatPane({ model }: Props) {
           });
         } else if (event.type === "error") {
           setMessages((prev) => [...prev, { role: "bot", text: `⚠️ ${event.error}` }]);
+        } else if (event.type === "done" && event.inference_time_ms !== undefined) {
+          // The answer's energy, and the GPT-4o estimate, under its text
+          const metrics = {
+            inference_time_ms: event.inference_time_ms,
+            energy_wh: event.energy_wh ?? 0,
+            cloud_wh: event.cloud_wh,
+          };
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role !== "bot" || !acc) return prev;
+            return [...prev.slice(0, -1), { ...last, metrics }];
+          });
         }
-        // "done" carries energy metrics; the sidebar reads them from the
-        // shared power stream, so nothing to do here.
       },
       () => {
         setIsLoading(false);

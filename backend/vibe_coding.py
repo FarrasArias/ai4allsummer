@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from utilities.main_model import KEEP_ALIVE, MAIN_MODEL
+from utilities.cloud_estimate import new_tokens
 import json
 import logging
 
@@ -58,6 +59,10 @@ class VibeCodingChat:
         self.model = model
         self.conversation_history: List[Dict[str, str]] = []
         self.code_context: str = ""  # For loaded code files
+        # Tokens the last answer processed: new input and output (for the
+        # cloud comparison, utilities/cloud_estimate.py)
+        self._prompt_tokens = 0
+        self.answer_tokens: Dict[str, int] = {"input": 0, "output": 0}
         self.loaded_files: List[str] = []
 
         # Verify model is available
@@ -221,10 +226,19 @@ class VibeCodingChat:
                     content = chunk["message"]["content"]
                     print(content, end="", flush=True)
                     full_response += content
+                    final = chunk
                 print()
             else:
                 full_response = response["message"]["content"]
                 print(full_response)
+                final = response
+
+            prompt_tokens = final.get("prompt_eval_count") or 0
+            self.answer_tokens = {
+                "input": new_tokens(prompt_tokens, self._prompt_tokens),
+                "output": final.get("eval_count") or 0,
+            }
+            self._prompt_tokens = prompt_tokens
 
             self.conversation_history.append(
                 {

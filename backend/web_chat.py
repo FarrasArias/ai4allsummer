@@ -24,6 +24,7 @@ from utilities.prompt_config import get_system_prompt
 from utilities.rag_store import RagStore
 from utilities.doc_loaders import extract_document, segments_to_text
 from utilities import web_tools
+from utilities.cloud_estimate import new_tokens
 from utilities.main_model import KEEP_ALIVE, MAIN_MODEL
 
 
@@ -152,6 +153,11 @@ class WebChatSession:
         self.document_context: str = ""
         self.loaded_files: List[str] = list(self.rag.document_names())
 
+        # Tokens the last answer processed, over all its model calls: new
+        # input and output (for the cloud comparison, utilities/cloud_estimate.py)
+        self._prompt_tokens = 0
+        self.answer_tokens: Dict[str, int] = {"input": 0, "output": 0}
+
         # tool name -> function
         self.available_tools = {
             "web_search": web_search,
@@ -226,6 +232,7 @@ class WebChatSession:
 
         self.messages.append({"role": "user", "content": user_input})
         got_assistant_reply = False
+        self.answer_tokens = {"input": 0, "output": 0}
 
         for iteration in range(1, MAX_ITERATIONS + 1):
             logger.info("WebChat iteration %d/%d", iteration, MAX_ITERATIONS)
@@ -251,6 +258,11 @@ class WebChatSession:
                         self.messages.pop()
                 yield {"type": "error", "error": str(e)}
                 return
+
+            prompt_tokens = getattr(response, "prompt_eval_count", 0) or 0
+            self.answer_tokens["input"] += new_tokens(prompt_tokens, self._prompt_tokens)
+            self.answer_tokens["output"] += getattr(response, "eval_count", 0) or 0
+            self._prompt_tokens = prompt_tokens
 
             content = getattr(response.message, "content", None)
             if content:

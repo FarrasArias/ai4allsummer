@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { ApiError, streamImageAnalysis } from "../api";
+import { ApiError, streamImageAnalysis, type InferenceMetrics } from "../api";
+import { formatEnergy } from "../format";
+import CloudEstimate from "./CloudEstimate";
 
 type Turn = {
   prompt: string;
   response: string | null;
+  metrics?: InferenceMetrics;
 };
 
 type Props = {
@@ -141,6 +144,14 @@ export default function ImageAnalysisPane({ model }: Props) {
           });
         },
         setStatusText,
+        (metrics) => {
+          setTurns((prev) => {
+            const next = [...prev];
+            const lastIndex = next.length - 1;
+            if (lastIndex >= 0 && accumulatedResponse) next[lastIndex] = { ...next[lastIndex], metrics };
+            return next;
+          });
+        },
       );
     } catch (err) {
       console.error(err);
@@ -247,6 +258,12 @@ export default function ImageAnalysisPane({ model }: Props) {
                       Prompt: {t.prompt}
                     </strong>
                     <div>{t.response || (idx === turns.length - 1 && isStreaming ? (statusText ?? "…") : "")}</div>
+                    {t.metrics && (
+                      <div className="inference-metrics">
+                        <span title="Energy consumption">⚡ {formatEnergy(t.metrics.energy_wh)}</span>
+                        <CloudEstimate wh={t.metrics.cloud_wh} />
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

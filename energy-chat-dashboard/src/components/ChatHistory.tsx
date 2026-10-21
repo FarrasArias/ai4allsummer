@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { InferenceMetrics } from "../api";
 import { formatEnergy } from "../format";
+import CloudEstimate from "./CloudEstimate";
 
 type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
 type Props = {
@@ -112,6 +113,7 @@ export default function ChatHistory({ messages, isStreaming = false, thinkingMod
               <div className="inference-metrics">
                 <span title="Inference time">⏱ {formatTime(m.metrics.inference_time_ms)}</span>
                 <span title="Energy consumption">⚡ {formatEnergy(m.metrics.energy_wh)}</span>
+                <CloudEstimate wh={m.metrics.cloud_wh} />
                 {(m.metrics.input_tokens != null || m.metrics.output_tokens != null) && (
                   <span title="Per-prompt: ~user message tokens → output tokens | Context: full prompt sent to model (grows with history)">
                     Tokens: ~{m.metrics.user_prompt_tokens ?? "?"} in → {m.metrics.output_tokens ?? "?"} out
