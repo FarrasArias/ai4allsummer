@@ -434,6 +434,43 @@ body {
     border-top: 1px solid var(--color-border);
     margin-top: auto;
     padding-top: 8px;
+    /* On short windows the open details scroll, instead of running off the bottom */
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.sidebar-activity {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 4px 8px 2px;
+    font-size: var(--font-size-sm);
+    line-height: 1.35;
+    color: var(--color-text);
+}
+
+.sidebar-activity-icon {
+    display: flex;
+    padding-top: 1px;
+    color: var(--color-text-dim);
+}
+
+.sidebar-activity-queue {
+    display: block;
+    color: var(--color-text-dim);
+}
+
+.sidebar-energy-subhead {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.sidebar-energy-note {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-dim);
+    line-height: 1.4;
 }
 
 .sidebar-energy-toggle {
@@ -489,6 +526,8 @@ body {
 
 .sidebar-energy-details {
     padding: 8px 8px 4px;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .sidebar-energy-big {

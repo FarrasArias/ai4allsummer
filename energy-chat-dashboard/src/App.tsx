@@ -34,6 +34,7 @@ import {
     slugifyConductTitle,
     type ChatInfo,
     type ModeDefaults,
+    type Activity,
     type ConductPhase,
     type InferenceMetrics,
 } from "./api";
@@ -67,6 +68,7 @@ export default function App() {
     const [todayTotalWh, setTodayTotalWh] = useState<number | null>(null);
     const [promptWhHistory, setPromptWhHistory] = useState<number[]>([]);
     const lastPromptWhRef = useRef<number | null>(null);
+    const [activity, setActivity] = useState<Activity | null>(null);
 
     /* ── Tab / nav ── */
     const [tab, setTab] = useState<ModeTab>("chat");
@@ -221,6 +223,7 @@ export default function App() {
             setLatestPromptWh(latestWh);
             setSessionTotalWh(sessionWh);
             setTodayTotalWh(todayWh);
+            setActivity(s.activity ?? null);
         });
         return stop;
     }, []);
@@ -493,6 +496,7 @@ export default function App() {
                     sessionTotalWh={sessionTotalWh}
                     promptCount={promptMetrics.length}
                     grade={grade}
+                    activity={activity}
                     theme={theme}
                     onThemeChange={setTheme}
                     onSearch={handleSearch}

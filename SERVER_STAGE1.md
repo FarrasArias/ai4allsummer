@@ -639,6 +639,14 @@ Rough size: steps 1–3 about 2 days, 4–5 about 3 days, 6 about 2 days, 7 abou
   60m) and the server preloads the model at start, so a reload's energy isn't charged to whoever
   asks next. The other chat models were removed from this Mac; `nomic-embed-text` stays for
   document search. The setup scripts download the main model (about 18 GB; needs 32 GB of memory).
+- **Right now** (round 2, step 4a): `utilities/presence.py` keeps, in memory, when each person last
+  made an API request. The access middleware reports every allowed request; the energy stream and
+  `/api/queue` don't count, so a tab left open drops off after 5 minutes. "Active" is that, plus
+  anyone with a job in the queue. Everyone gets counts only (people active, running, waiting, their
+  own place) on the power stream every second, and from `/api/queue`; the sidebar shows them.
+  Admins get names and what each person has in line from `GET /api/admin/activity`, shown at the
+  top of the Energy report and refreshed every 5 seconds. The power stream now reconnects after a
+  dropped connection (e.g. a restart) instead of silently freezing.
 - `server/server.sh install` waits for the old service to unload before starting the new one:
   loading it too soon failed with "Bootstrap failed: 5: Input/output error" and left the server
   down until it was started again.

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { ENERGY_CSV_URL, getEnergyReport, type EnergyReport } from "../api";
+import { ENERGY_CSV_URL, getAdminActivity, getEnergyReport, type AdminActivity, type EnergyReport } from "../api";
 import { formatEnergy } from "../format";
 import { errorText } from "../session";
 
@@ -57,6 +57,8 @@ export default function EnergyPane() {
 
     return (
         <div className="energy-pane">
+            <RightNow />
+
             <div className="energy-filters">
                 <div className="energy-periods" role="group" aria-label="Period">
                     {PERIODS.map((p) => (
@@ -123,6 +125,66 @@ export default function EnergyPane() {
     );
 }
 
+/* Who's using the app and what's in the queue, by name — refreshed every
+   few seconds. Everyone else sees only the counts (sidebar). */
+function RightNow() {
+    const [data, setData] = useState<AdminActivity | null>(null);
+
+    useEffect(() => {
+        let current = true;
+        const load = () => getAdminActivity().then((d) => { if (current) setData(d); }).catch(() => {});
+        load();
+        const timer = setInterval(load, 5000);
+        return () => { current = false; clearInterval(timer); };
+    }, []);
+
+    if (!data) return null;
+    const queue = !data.running
+        ? "Nothing running"
+        : data.waiting > 0 ? `1 prompt running, ${data.waiting} waiting` : "1 prompt running";
+    const ago = (s: number | null) => (s === null ? "—" : s < 60 ? "Just now" : `${Math.round(s / 60)} min ago`);
+
+    return (
+        <section className="panel">
+            <div className="panel-body">
+                <h3 className="energy-h">Right now</h3>
+                <p className="energy-sub">
+                    {queue}. People who used U.ness in the last {data.window_minutes} minutes:
+                    {data.people.length === 0 && " nobody."}
+                </p>
+                {data.people.length > 0 && (
+                    <div className="users-table-wrap">
+                        <table className="users-table energy-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Person</th>
+                                    <th scope="col">Last active</th>
+                                    <th scope="col">In line</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {data.people.map((p) => (
+                                    <tr key={p.username}>
+                                        <td>{p.username}</td>
+                                        <td>{ago(p.seconds_ago)}</td>
+                                        <td>
+                                            {p.status === "running"
+                                                ? `Running ${p.doing}`
+                                                : p.status === "waiting"
+                                                    ? `Waiting (${p.doing}), ${p.ahead} ahead`
+                                                    : "—"}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        </section>
+    );
+}
+
 function Summary({ report }: { report: EnergyReport }) {
     const { wh, prompts, people_active, people } = report.totals;
     return (
@@ -141,7 +203,7 @@ function Summary({ report }: { report: EnergyReport }) {
                     <div className="energy-tile-value">{prompts ? formatEnergy(wh / prompts) : "—"}</div>
                 </div>
                 <div className="energy-tile">
-                    <div className="energy-label">People active</div>
+                    <div className="energy-label">People with prompts</div>
                     <div className="energy-tile-value">{people_active} of {people}</div>
                 </div>
             </div>

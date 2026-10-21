@@ -171,11 +171,18 @@ Privacy:
 Search engines may briefly slow down bursts of automated searches; if that happens, Web says so
 and you can try again a minute later.
 
+### Right now
+
+Everyone sees, above **Session energy** in the sidebar, how many people used U.ness in the last 5
+minutes and what's in line: "1 running, 2 waiting", or "1 ahead of yours" while their own prompt
+waits. Open **Session energy** for the same numbers in detail. Only counts, never names.
+
 ### Energy report (admins)
 
-**Energy report** in the sidebar (or **This Mac → Users → Energy report** on a phone) shows energy
-use for the last 7, 30 or 90 days or all time: totals, a chart per day, and breakdowns by
-person, mode and model. **Download CSV** gives every recorded prompt (date, user, mode, model,
+**Energy report** in the sidebar (or **This Mac → Users → Energy report** on a phone) starts with
+**Right now**: who used U.ness in the last 5 minutes, by name, and who is running or waiting, and
+for what (a chat, a web search…). Below that, energy use for the last 7, 30 or 90 days or all
+time: totals, a chart per day, and breakdowns by person, mode and model. **Download CSV** gives every recorded prompt (date, user, mode, model,
 energy in Wh, and duration in ms for prompts recorded from now on) for analysis elsewhere.
 
 ### What people online can't use

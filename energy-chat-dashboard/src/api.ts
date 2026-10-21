@@ -174,14 +174,40 @@ export function streamImageAnalysis(
   });
 }
 
+/* What's happening on the Mac right now — counts only, for everyone */
+export type Activity = {
+  running: boolean;
+  waiting: number;
+  /* Your place: 0 = your prompt is running, n = n prompts ahead of yours, null = none queued */
+  mine: number | null;
+  /* People who used the app in the last 5 minutes */
+  active: number;
+};
+
 export function streamPower(
   onUpdate: (summary: {
     latest_prompt_Wh: number;
     session_total_Wh: number;
     today_total_Wh: number;
+    activity?: Activity;
   }) => void,
 ) {
-  return sse(`${API_BASE}/api/power/stream`, onUpdate);
+  // Reconnects after a dropped connection (e.g. the server restarting),
+  // so the numbers don't silently freeze
+  let stop = () => {};
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
+  const connect = () => {
+    stop = sse(`${API_BASE}/api/power/stream`, onUpdate, () => {
+      if (!closed) retry = setTimeout(connect, 5000);
+    });
+  };
+  connect();
+  return () => {
+    closed = true;
+    clearTimeout(retry);
+    stop();
+  };
 }
 
 export async function powerSummary() {
@@ -848,6 +874,23 @@ export type EnergyReport = {
 
 /** days = 0 for all time */
 export const getEnergyReport = (days: number) => getJson<EnergyReport>(`/api/admin/energy?days=${days}`);
+
+export type ActivePerson = {
+  username: string;
+  seconds_ago: number | null;
+  status: "running" | "waiting" | null;
+  ahead: number | null;
+  doing: string | null;
+};
+
+export type AdminActivity = {
+  window_minutes: number;
+  running: boolean;
+  waiting: number;
+  people: ActivePerson[];
+};
+
+export const getAdminActivity = () => getJson<AdminActivity>(`/api/admin/activity`);
 
 // A plain link: the browser downloads it with the session cookie
 export const ENERGY_CSV_URL = `${API_BASE}/api/admin/energy.csv`;

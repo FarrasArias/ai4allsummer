@@ -190,6 +190,11 @@ class InferenceQueue:
                         break
             return {"running": self._running is not None, "waiting": len(self._waiting), "mine": mine}
 
+    def lineup(self) -> list[Ticket]:
+        """The running job (if any) followed by the waiting ones, in order."""
+        with self._cond:
+            return self._tickets()
+
 
 QUEUE = InferenceQueue()
 

@@ -108,18 +108,21 @@ def _cookie(headers: Headers, name: str) -> Optional[str]:
 
 class AccessMiddleware:
     """`owner()` returns the owner account; `session_user(token)` the user a
-    session cookie belongs to (or None). Passed in so this module doesn't
-    depend on the accounts store."""
+    session cookie belongs to (or None); `seen(user, path)`, if given, is told
+    about each allowed request from a known user. Passed in so this module
+    doesn't depend on the accounts store."""
 
     def __init__(
         self,
         app: ASGIApp,
         owner: Callable[[], User],
         session_user: Callable[[Optional[str]], Optional[User]],
+        seen: Optional[Callable[[User, str], None]] = None,
     ) -> None:
         self.app = app
         self.owner = owner
         self.session_user = session_user
+        self.seen = seen
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -166,6 +169,8 @@ class AccessMiddleware:
             await reject(401, "Login required")
             return
 
+        if self.seen is not None and state["user"] is not None:
+            self.seen(state["user"], path)
         await self.app(scope, receive, send)
 
 

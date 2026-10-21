@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import type { Grade } from "../energyGrade";
+import type { Activity } from "../api";
 
 /* ── Types ── */
 export type ModeTab = "chat" | "vibe" | "web" | "image" | "image_gen" | "conduct" | "about" | "settings" | "testing" | "energy";
@@ -50,6 +51,9 @@ type Props = {
     sessionTotalWh?: number | null;
     promptCount?: number;
     grade: Grade;
+
+    /* Right now: people active and the queue — counts only, never names */
+    activity?: Activity | null;
 
     /* Theme */
     theme?: ThemeChoice;
@@ -207,6 +211,16 @@ function IconMoon({ size = S }: { size?: number }) {
     );
 }
 
+function IconUsers({ size = S }: { size?: number }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 16 16" {...svgProps}>
+            <circle cx="6" cy="5.5" r="2.5" />
+            <path d="M1.5 14c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5" />
+            <path d="M10.5 3.2a2.5 2.5 0 010 4.6M12 9.8c1.5.6 2.5 2.2 2.5 4.2" />
+        </svg>
+    );
+}
+
 function IconBolt({ size = S }: { size?: number }) {
     return (
         <svg width={size} height={size} viewBox="0 0 16 16" {...svgProps} fill="currentColor" stroke="none">
@@ -229,6 +243,13 @@ function ModeIcon({ mode, size = S }: { mode: string; size?: number }) {
 }
 
 /* ── Helpers ── */
+function queueText(a: Activity): string {
+    if (a.mine === 0) return "yours is running";
+    if (a.mine !== null) return `${a.mine} ahead of yours`;
+    if (!a.running) return "nothing running";
+    return a.waiting > 0 ? `1 running, ${a.waiting} waiting` : "1 running";
+}
+
 const MODE_LABELS: Record<string, string> = {
     chat: "Chat",
     vibe: "Code",
@@ -280,6 +301,7 @@ export default function Sidebar({
     sessionTotalWh,
     promptCount,
     grade,
+    activity,
     theme = "system",
     onThemeChange,
     onSearch,
@@ -555,6 +577,15 @@ export default function Sidebar({
 
                 {/* ── Energy Panel ── */}
                 <div className="sidebar-energy">
+                    {activity && (
+                        <div className="sidebar-activity">
+                            <span className="sidebar-activity-icon"><IconUsers size={14} /></span>
+                            <span>
+                                {activity.active} {activity.active === 1 ? "person" : "people"} active
+                                <span className="sidebar-activity-queue">{queueText(activity)}</span>
+                            </span>
+                        </div>
+                    )}
                     <button
                         className="sidebar-energy-toggle"
                         onClick={() => setEnergyOpen(!energyOpen)}
@@ -613,6 +644,36 @@ export default function Sidebar({
                                     </div>
                                 )}
                             </div>
+
+                            {activity && (
+                                <div className="sidebar-energy-breakdown" style={{ marginTop: 12 }}>
+                                    <div className="sidebar-energy-subhead">Right now</div>
+                                    <div className="sidebar-energy-row">
+                                        <span>People active (last 5 min)</span>
+                                        <span className="sidebar-energy-row-value">{activity.active}</span>
+                                    </div>
+                                    <div className="sidebar-energy-row">
+                                        <span>Prompts running</span>
+                                        <span className="sidebar-energy-row-value">{activity.running ? 1 : 0}</span>
+                                    </div>
+                                    <div className="sidebar-energy-row">
+                                        <span>Waiting in line</span>
+                                        <span className="sidebar-energy-row-value">{activity.waiting}</span>
+                                    </div>
+                                    {activity.mine !== null && (
+                                        <div className="sidebar-energy-row">
+                                            <span>Ahead of yours</span>
+                                            <span className="sidebar-energy-row-value">
+                                                {activity.mine === 0 ? "none — running" : activity.mine}
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className="sidebar-energy-note">
+                                        Prompts run one at a time on this Mac, so each energy reading is
+                                        one person's.
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

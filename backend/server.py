@@ -93,6 +93,7 @@ from utilities.access import (
 )
 from utilities.inference_queue import QUEUE, QueueBusy, QueueTimeout, queued_response
 from utilities import energy
+from utilities import presence
 from utilities.energy import EnergyMeter
 from utilities.engine_registry import EngineRegistry
 from utilities.user_paths import InvalidName, paths_for, safe_child
@@ -181,7 +182,9 @@ async def _lifespan(_app):
 
 
 app = FastAPI(title="React <> Python API (Ollama)", lifespan=_lifespan)
-app.add_middleware(AccessMiddleware, owner=accounts.owner, session_user=accounts.user_for_session)
+app.add_middleware(
+    AccessMiddleware, owner=accounts.owner, session_user=accounts.user_for_session, seen=presence.request,
+)
 
 # The frontend is served from the same origin (directly, or through Vite's
 # dev proxy), so no CORS by default. A wildcard origin with credentials would
@@ -1141,17 +1144,26 @@ async def power_stream(user: User = Depends(current_user)):
                 summary = await run_in_threadpool(energy.summary, user)
             except Exception:
                 break
+            summary = {**summary, "activity": _activity(user)}
             yield f"data: {json.dumps(summary)}\n\n".encode("utf-8")
             await asyncio.sleep(1.0)
 
     return StreamingResponse(_gen(), media_type="text/event-stream")
 
 
+def _activity(user: User) -> dict:
+    """What anyone may see of what's happening: whether a model job is
+    running, how many are waiting, the caller's place in line (0 = running,
+    otherwise how many are ahead; null = nothing queued), and how many people
+    used the app in the last few minutes. Counts only: names are for admins
+    (/api/admin/activity)."""
+    people = {p["user_id"] for p in presence.recent()} | {t.user_id for t in QUEUE.lineup()}
+    return {**QUEUE.snapshot(user.id), "active": len(people)}
+
+
 @app.get("/api/queue")
 def queue_status(user: User = Depends(current_user)):
-    """Whether a model job is running, how many are waiting, and the caller's
-    place in line (0 = running, null = nothing queued)."""
-    return QUEUE.snapshot(user.id)
+    return _activity(user)
 
 
 @app.get("/api/analytics/power")
@@ -1330,6 +1342,36 @@ def admin_invites():
 def admin_create_invite(payload: dict, request: Request, user: User = Depends(current_user)):
     token = accounts.create_invite(user, payload.get("role", "user"), payload.get("note", ""))
     return {"url": _link(request, f"/invite/{token}"), "expires_days": accounts.INVITE_DAYS}
+
+
+@app.get("/api/admin/activity", dependencies=[Depends(require_admin)])
+def admin_activity():
+    """The admin side of "Right now": who used the app in the last few
+    minutes and what each of them has in the queue, by name."""
+    names = {u["id"]: u["username"] for u in accounts.list_users()}
+    recent = {p["user_id"]: p["seconds_ago"] for p in presence.recent()}
+    lineup = QUEUE.lineup()
+    queued: dict = {}
+    for place, t in enumerate(lineup):
+        if t.user_id not in queued:  # someone's first ticket is their place in line
+            queued[t.user_id] = {"status": "running" if t.started else "waiting", "ahead": place, "doing": t.label}
+
+    people = [
+        {
+            "username": names.get(uid, "(deleted)"),
+            "seconds_ago": recent.get(uid),
+            "status": None, "ahead": None, "doing": None,
+            **queued.get(uid, {}),
+        }
+        for uid in set(recent) | set(queued)
+    ]
+    people.sort(key=lambda p: (p["ahead"] is None, p["ahead"] or 0, p["seconds_ago"] or 0))
+    return {
+        "window_minutes": presence.ACTIVE_SECONDS // 60,
+        "running": any(t.started for t in lineup),
+        "waiting": sum(1 for t in lineup if not t.started),
+        "people": people,
+    }
 
 
 @app.get("/api/admin/energy", dependencies=[Depends(require_admin)])
