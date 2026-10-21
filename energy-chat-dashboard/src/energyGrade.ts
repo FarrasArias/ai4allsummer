@@ -3,7 +3,11 @@
 
    Follows technical_writeup.md §4.2: the thresholds below, applied to the
    average energy of the last GRADE_WINDOW prompts, and deferred until
-   GRADE_DEFER_PROMPTS prompts have been sent (shown as "A" until then). */
+   GRADE_DEFER_PROMPTS prompts have been sent (shown as "A" until then).
+
+   Calibrated on qwen3.8:27b (October 2026, 39 measured prompts): a short
+   answer is ~3 mWh, a 150–300-word answer ~65 mWh, a web search with a
+   few pages ~280 mWh, a long deep-think answer ~400 mWh. */
 
 export type Grade = "A" | "B" | "C" | "D" | "E";
 
@@ -15,9 +19,9 @@ export const GRADE_WINDOW = 5;
 export function computeGrade(avgPromptWh: number | null | undefined, promptCount: number): Grade {
     if (promptCount < GRADE_DEFER_PROMPTS) return "A";
     const v = typeof avgPromptWh === "number" ? avgPromptWh : 0;
-    if (v <= 0.05) return "A";
-    if (v <= 0.15) return "B";
-    if (v <= 0.5) return "C";
-    if (v <= 1.5) return "D";
+    if (v <= 0.02) return "A";
+    if (v <= 0.08) return "B";
+    if (v <= 0.2) return "C";
+    if (v <= 0.4) return "D";
     return "E";
 }

@@ -151,11 +151,18 @@ The intervention sidebar classifies cumulative energy usage into five impact gra
 
 | Grade | Threshold (Wh)  | Description                        |
 |-------|------------------|------------------------------------|
-| A     | $\leq 0.05$     | Very low estimated impact          |
-| B     | $\leq 0.15$     | Low impact — efficient use         |
-| C     | $\leq 0.50$     | Moderate impact                    |
-| D     | $\leq 1.50$     | High impact                        |
-| E     | $> 1.50$        | Very high impact                   |
+| A     | $\leq 0.02$     | Very low estimated impact          |
+| B     | $\leq 0.08$     | Low impact — efficient use         |
+| C     | $\leq 0.20$     | Moderate impact                    |
+| D     | $\leq 0.40$     | High impact                        |
+| E     | $> 0.40$        | Very high impact                   |
+
+The thresholds were recalibrated in October 2026 for qwen3.8:27b, the one model every mode now
+uses, from 39 measured prompts (13 kinds, three runs each): a short answer takes about 3 mWh, a
+150–300-word answer about 65 mWh, a web search reading a few pages about 280 mWh, and a long
+deep-think answer about 400 mWh. The same prompt varied by up to 2× between runs. The previous
+thresholds (0.05 / 0.15 / 0.5 / 1.5 Wh) were set for earlier models; no prompt measured on
+qwen3.8:27b exceeded 0.48 Wh, so D and E could not occur under them.
 
 Grading is deferred until at least five prompts have been submitted to avoid premature classification from insufficient data. The grading input value is, by preference: (1) the rolling average of the last five prompt energies, (2) the session total energy, or (3) the latest single-prompt energy.
 
