@@ -12,11 +12,19 @@ http://localhost:8000 would arrive from loopback on the owner's port and be
 served as the owner (utilities/access.py). Every address — the first one,
 each redirect, and the one actually connected to (which defeats DNS
 rebinding) — has to be a public internet address.
+
+Privacy: search engines and sites only ever see this Mac, with no cookies,
+account or referrer. Queries are scrubbed of contact details and long
+numbers before they leave (scrub_query), the model is told to keep names
+out of them (web_chat.py), and neither queries nor page addresses are
+logged — the HTTP libraries' request logging is turned down below.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import logging
+import re
 import socket
 from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional
@@ -36,18 +44,59 @@ class WebToolError(RuntimeError):
     """Shown to the model as the tool's result, so it can tell the user."""
 
 
+# These log every request with its full URL at INFO; searches and the pages
+# people read must not end up in the server log
+for _name in ("httpx", "httpcore", "primp", "ddgs"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
+
+# -- removing personal details from search queries ----------------------------------
+
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+_IPV6 = re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}\b")
+# A run of digits with the separators people put in phone, card and ID numbers
+_NUMBER_RUN = re.compile(r"\+?\(?\d[\d\s().\-/]*\d\)?")
+_YEAR = re.compile(r"(?:19|20)\d\d")
+
+
+def _strip_number(match: re.Match) -> str:
+    run = match.group(0)
+    digits = re.sub(r"\D", "", run)
+    if len(digits) < 9:
+        return run          # years, versions, prices, short numbers stay
+    groups = re.findall(r"\d+", run)
+    if all(_YEAR.fullmatch(g) for g in groups):
+        return run          # "2023 2024 2025", "1990-2020"
+    return " "              # phone, card, ID, account numbers
+
+
+def scrub_query(query: str) -> str:
+    """The search query with contact details and long identifying numbers
+    removed — what actually leaves this Mac. Names can't be detected
+    reliably, so the model is instructed to leave them out instead."""
+    q = _EMAIL.sub(" ", query or "")
+    q = _IPV6.sub(" ", q)
+    q = _IPV4.sub(" ", q)
+    q = _NUMBER_RUN.sub(_strip_number, q)
+    return " ".join(q.split())
+
+
 # -- search ----------------------------------------------------------------------
 
 def search(query: str, max_results: int = 5) -> Dict[str, Any]:
     from ddgs import DDGS
     from ddgs.exceptions import DDGSException, RatelimitException, TimeoutException
 
+    q = scrub_query(query)
+    if not q:
+        raise WebToolError("Nothing was left to search after removing personal details.")
     try:
         n = max(1, min(int(max_results or 5), MAX_RESULTS))
     except (TypeError, ValueError):
         n = 5
     try:
-        hits = DDGS(timeout=TIMEOUT_SECONDS).text(query, max_results=n)
+        hits = DDGS(timeout=TIMEOUT_SECONDS).text(q, max_results=n)
     except RatelimitException:
         raise WebToolError("Web search is being rate-limited right now. Try again in a minute.")
     except TimeoutException:

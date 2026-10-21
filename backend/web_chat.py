@@ -48,6 +48,13 @@ ENABLE_THINKING = False
 MAX_ITERATIONS = 5
 MAX_TOOL_RESULT_LENGTH = 8000
 
+SEARCH_PRIVACY_RULE = (
+    "Privacy: web searches leave this computer. Write search queries about the topic only: "
+    "never include anyone's name, email, phone number, address, ID numbers or other personal "
+    "details, even if the user mentioned them. Generalise instead (for example, search for "
+    "'symptoms of migraine' rather than the user's name and condition)."
+)
+
 DEFAULT_SYSTEM_PROMPT = """You are a helpful AI assistant with access to web search.
 When you need current information, use the web_search tool.
 When you need to read a specific webpage, use the web_fetch tool.
@@ -107,7 +114,8 @@ def _normalize_tool_args(tool_args: Union[str, Dict[str, Any], None]) -> Dict[st
 def _tool_status_text(tool_name: str, tool_args: Dict[str, Any]) -> str:
     """Human-readable progress line for a tool invocation."""
     if tool_name == "web_search":
-        query = str(tool_args.get("query", "")).strip()
+        # What actually leaves this Mac, after personal details are removed
+        query = web_tools.scrub_query(str(tool_args.get("query", "")))
         return f'Searching the web for: "{query}"' if query else "Searching the web…"
     if tool_name == "web_fetch":
         url = str(tool_args.get("url", "")).strip()
@@ -127,7 +135,11 @@ class WebChatSession:
 
     def __init__(self, model: str = MODEL_NAME, rag_dir: Path = Path("rag_cache")):
         self.model = model
-        self.base_system = get_system_prompt("web", DEFAULT_SYSTEM_PROMPT) or DEFAULT_SYSTEM_PROMPT
+        # The privacy rule is added in code, so editing prompts.json can't drop it
+        self.base_system = (
+            (get_system_prompt("web", DEFAULT_SYSTEM_PROMPT) or DEFAULT_SYSTEM_PROMPT).rstrip()
+            + "\n\n" + SEARCH_PRIVACY_RULE
+        )
 
         # Conversation history WITHOUT the system message
         self.messages: List[Any] = []
@@ -271,7 +283,8 @@ class WebChatSession:
                     continue
 
                 try:
-                    logger.info("Calling tool %s args=%s", tool_name, tool_args)
+                    # Never the arguments: they're the search or the page address
+                    logger.info("Calling tool %s", tool_name)
                     result = fn(**tool_args)
                     result_str = str(result)[:MAX_TOOL_RESULT_LENGTH]
                     self.messages.append(
@@ -280,7 +293,7 @@ class WebChatSession:
                     logger.info("Tool %s OK", tool_name)
                 except Exception as e:
                     # 401s, timeouts, etc. — non-fatal, the model sees the error
-                    logger.exception("Tool %s FAILED args=%s", tool_name, tool_args)
+                    logger.warning("Tool %s failed (%s)", tool_name, type(e).__name__)
                     yield {"type": "status", "text": f"{tool_name} failed: {e}"}
                     self.messages.append(
                         {
