@@ -13,6 +13,19 @@ function formatUpdated(ts: number): string {
     return new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** The exchange being logged: the last reply and the prompt that led to it. */
+export type LogCapture = { prompt: string; response: string };
+
+export type LogAppendArgs = {
+    phase: ConductPhase;
+    note: string;
+    title?: string;
+    prompt: string;
+    response: string;
+    promptEdited: boolean;
+    responseEdited: boolean;
+};
+
 type Props = {
     open: boolean;
     onClose: () => void;
@@ -20,12 +33,17 @@ type Props = {
     /** The log this session is appending to, once one exists. */
     activeSlug?: string | null;
     defaultTitle: string;
-    onAppend: (args: { phase: ConductPhase; note: string; title?: string }) => Promise<boolean>;
+    captured: LogCapture;
+    onAppend: (args: LogAppendArgs) => Promise<boolean>;
 };
 
-export default function LogPopover({ open, onClose, showTitleField, activeSlug, defaultTitle, onAppend }: Props) {
+const isEdited = (value: string, original: string) => value.trim() !== original.trim();
+
+export default function LogPopover({ open, onClose, showTitleField, activeSlug, defaultTitle, captured, onAppend }: Props) {
     const [phase, setPhase] = useState<ConductPhase | null>(null);
     const [note, setNote] = useState("");
+    const [prompt, setPrompt] = useState(captured.prompt);
+    const [response, setResponse] = useState(captured.response);
     const [title, setTitle] = useState(defaultTitle);
     const [submitting, setSubmitting] = useState(false);
     const [status, setStatus] = useState<string | null>(null);
@@ -51,6 +69,8 @@ export default function LogPopover({ open, onClose, showTitleField, activeSlug, 
         if (open) {
             setPhase(null);
             setNote("");
+            setPrompt(captured.prompt);
+            setResponse(captured.response);
             setTitle(defaultTitle);
             setStatus(null);
             setSubmitting(false);
@@ -92,6 +112,10 @@ export default function LogPopover({ open, onClose, showTitleField, activeSlug, 
             phase,
             note,
             title: showTitleField ? title.trim() || undefined : undefined,
+            prompt,
+            response,
+            promptEdited: isEdited(prompt, captured.prompt),
+            responseEdited: isEdited(response, captured.response),
         });
         setSubmitting(false);
         if (ok) {
@@ -146,6 +170,15 @@ export default function LogPopover({ open, onClose, showTitleField, activeSlug, 
                 ))}
             </div>
 
+            {/* The captured exchange, editable before it's written; the log
+                marks a changed prompt or response as "(edited)" */}
+            {(captured.prompt || captured.response) && (
+                <>
+                    <TurnField label="Prompt" value={prompt} original={captured.prompt} onChange={setPrompt} rows={2} />
+                    <TurnField label="Response" value={response} original={captured.response} onChange={setResponse} rows={5} />
+                </>
+            )}
+
             <div className="log-popover-field">
                 <label>Note (optional)</label>
                 <textarea
@@ -166,6 +199,44 @@ export default function LogPopover({ open, onClose, showTitleField, activeSlug, 
                     {status || (submitting ? "Adding…" : collision ? "Append to existing log" : "Append")}
                 </button>
             </div>
+        </div>
+    );
+}
+
+function TurnField({ label, value, original, onChange, rows }: {
+    label: string;
+    value: string;
+    original: string;
+    onChange: (v: string) => void;
+    rows: number;
+}) {
+    const [copyStatus, setCopyStatus] = useState<string | null>(null);
+    const edited = isEdited(value, original);
+
+    function handleCopy() {
+        navigator.clipboard.writeText(value)
+            .then(() => setCopyStatus("Copied"))
+            .catch(() => setCopyStatus("Failed"))
+            .finally(() => setTimeout(() => setCopyStatus(null), 1500));
+    }
+
+    return (
+        <div className="log-popover-field">
+            <div className="log-popover-field-head">
+                <label>
+                    {label}
+                    {edited && <span className="log-popover-edited"> · edited</span>}
+                </label>
+                <span className="log-popover-field-tools">
+                    {edited && (
+                        <button type="button" onClick={() => onChange(original)}>Restore original</button>
+                    )}
+                    <button type="button" onClick={handleCopy} disabled={!value.trim()}>
+                        {copyStatus || "Copy"}
+                    </button>
+                </span>
+            </div>
+            <textarea rows={rows} value={value} aria-label={label} onChange={(e) => onChange(e.target.value)} />
         </div>
     );
 }

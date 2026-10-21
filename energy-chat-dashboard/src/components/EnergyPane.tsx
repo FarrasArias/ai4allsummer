@@ -117,7 +117,7 @@ export default function EnergyPane() {
                         Each prompt's energy is this Mac's power draw (CPU, GPU and Neural Engine) above idle
                         while that prompt ran. Prompts run one at a time, so each reading belongs to one
                         person. Other work on the Mac during a prompt is counted in it, and the first prompt
-                        after about 5 quiet minutes includes loading the model.
+                        after an hour with no prompts includes loading the model.
                     </p>
                 </div>
             )}

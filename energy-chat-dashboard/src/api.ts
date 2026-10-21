@@ -771,6 +771,9 @@ export async function appendConductLog(
     note: string;
     prompt: string;
     response: string;
+    /* Changed in the → Log popover from what was actually said */
+    prompt_edited?: boolean;
+    response_edited?: boolean;
     model?: string | null;
     mode?: string | null;
     energy_wh?: number | null;

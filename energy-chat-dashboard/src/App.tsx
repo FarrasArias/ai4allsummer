@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Sidebar, { type ModeTab, type ThemeChoice } from "./components/Sidebar";
 import HeaderBar from "./components/HeaderBar";
 import ChatPane from "./components/ChatPane";
@@ -13,6 +13,7 @@ import TestRunnerPane from "./components/TestRunnerPane";
 import AccountPanel from "./components/AccountPanel";
 import UsersPanel from "./components/UsersPanel";
 import EnergyPane from "./components/EnergyPane";
+import type { LogAppendArgs, LogCapture } from "./components/LogPopover";
 import { TipProvider } from "./components/TipContext";
 import {
     streamPower,
@@ -35,7 +36,6 @@ import {
     type ChatInfo,
     type ModeDefaults,
     type Activity,
-    type ConductPhase,
     type InferenceMetrics,
 } from "./api";
 
@@ -138,6 +138,21 @@ export default function App() {
 
     // activeModel for display: use whatever ChatPane last reported, else the default
     const activeModel = currentModel || chatModeModel;
+
+    // What → Log captures: the last reply and the prompt that led to it.
+    // The greeting has no prompt before it, so it's never captured.
+    const [logCapture, logEnergyWh] = useMemo((): [LogCapture, number | null] => {
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role !== "bot") continue;
+            for (let j = i - 1; j >= 0; j--) {
+                if (messages[j].role === "user") {
+                    return [{ prompt: messages[j].text, response: messages[i].text }, messages[i].metrics?.energy_wh ?? null];
+                }
+            }
+            break;
+        }
+        return [{ prompt: "", response: "" }, null];
+    }, [messages]);
 
     const recentAvgWh =
         promptWhHistory.length > 0
@@ -316,28 +331,20 @@ export default function App() {
         URL.revokeObjectURL(url);
     }
 
-    async function handleAppendLog(args: { phase: ConductPhase; note: string; title?: string }): Promise<boolean> {
-        let lastBotIndex = -1;
-        for (let i = messages.length - 1; i >= 0; i--) {
-            if (messages[i].role === "bot") { lastBotIndex = i; break; }
-        }
-        const lastBot = lastBotIndex >= 0 ? messages[lastBotIndex] : undefined;
-        let precedingUser: Msg | undefined;
-        for (let i = lastBotIndex - 1; i >= 0; i--) {
-            if (messages[i].role === "user") { precedingUser = messages[i]; break; }
-        }
-
+    async function handleAppendLog(args: LogAppendArgs): Promise<boolean> {
         const slug = logSlug || slugifyConductTitle(args.title || defaultLogTitle);
 
         try {
             const res = await appendConductLog(slug, {
                 phase: args.phase,
                 note: args.note,
-                prompt: precedingUser?.text || "",
-                response: lastBot?.text || "",
+                prompt: args.prompt,
+                response: args.response,
+                prompt_edited: args.promptEdited,
+                response_edited: args.responseEdited,
                 model: activeModel || null,
                 mode: tab,
-                energy_wh: lastBot?.metrics?.energy_wh ?? null,
+                energy_wh: logEnergyWh,
                 title: args.title,
             });
             if (res.ok && !logSlug) setLogSlug(slug);
@@ -522,6 +529,7 @@ export default function App() {
                         onSaveResponse={handleSaveLastResponse}
                         copyStatus={copyStatus}
                         onAppendLog={showConductTools ? handleAppendLog : undefined}
+                        logCapture={logCapture}
                         logTitleDefault={defaultLogTitle}
                         showLogTitleField={!logSlug}
                         logSlug={logSlug}

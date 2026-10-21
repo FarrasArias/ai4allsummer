@@ -647,6 +647,11 @@ Rough size: steps 1–3 about 2 days, 4–5 about 3 days, 6 about 2 days, 7 abou
   Admins get names and what each person has in line from `GET /api/admin/activity`, shown at the
   top of the Energy report and refreshed every 5 seconds. The power stream now reconnects after a
   dropped connection (e.g. a restart) instead of silently freezing.
+- **→ Log edit and copy** (round 2, step 5): the popover shows the captured prompt and response,
+  editable, each with Copy and "Restore original". A changed one is written as "**Prompt (edited)**"
+  / "**Response (edited)**" in the log and `prompt_edited` / `response_edited` in the sidecar, so
+  the log stays honest about what the model actually said. The greeting is no longer captured as a
+  "response" when there's been no exchange yet.
 - `server/server.sh install` waits for the old service to unload before starting the new one:
   loading it too soon failed with "Bootstrap failed: 5: Input/output error" and left the server
   down until it was started again.

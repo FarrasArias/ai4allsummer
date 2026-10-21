@@ -1,8 +1,7 @@
 import { useState } from "react";
 import type { Grade } from "../energyGrade";
 import type { ModeTab } from "./Sidebar";
-import type { ConductPhase } from "../api";
-import LogPopover from "./LogPopover";
+import LogPopover, { type LogAppendArgs, type LogCapture } from "./LogPopover";
 
 type Props = {
     tab: ModeTab;
@@ -20,7 +19,8 @@ type Props = {
     copyStatus?: string | null;
 
     /* Conduct log */
-    onAppendLog?: (args: { phase: ConductPhase; note: string; title?: string }) => Promise<boolean>;
+    onAppendLog?: (args: LogAppendArgs) => Promise<boolean>;
+    logCapture?: LogCapture;
     logTitleDefault?: string;
     showLogTitleField?: boolean;
     /** Slug of the log this session is already appending to, if any. */
@@ -135,6 +135,7 @@ export default function HeaderBar({
     onSaveResponse,
     copyStatus,
     onAppendLog,
+    logCapture,
     logTitleDefault,
     showLogTitleField,
     logSlug,
@@ -223,6 +224,7 @@ export default function HeaderBar({
                                 showTitleField={!!showLogTitleField}
                                 activeSlug={logSlug ?? null}
                                 defaultTitle={logTitleDefault || ""}
+                                captured={logCapture ?? { prompt: "", response: "" }}
                                 onAppend={onAppendLog}
                             />
                         </div>

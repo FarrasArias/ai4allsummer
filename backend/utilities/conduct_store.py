@@ -140,7 +140,8 @@ def _blockquote(text: str) -> str:
 
 
 def _entry_markdown(phase: str, ts: float, note: str, prompt: str, response: str,
-                     model: Optional[str], energy_wh: Optional[float]) -> str:
+                     model: Optional[str], energy_wh: Optional[float],
+                     prompt_edited: bool = False, response_edited: bool = False) -> str:
     time_str = time.strftime("%H:%M", time.localtime(ts))
     heading = f"## {phase.capitalize()} · {time_str}"
     if response.strip():
@@ -153,11 +154,12 @@ def _entry_markdown(phase: str, ts: float, note: str, prompt: str, response: str
     if note.strip():
         lines.append(f"**Note:** {note.strip()}")
         lines.append("")
+    # "(edited)": changed in the → Log popover from what was actually said
     if prompt.strip():
-        lines.append(f"**Prompt:** {prompt.strip()}")
+        lines.append(f"**Prompt{' (edited)' if prompt_edited else ''}:** {prompt.strip()}")
         lines.append("")
     if response.strip():
-        lines.append("**Response:**")
+        lines.append(f"**Response{' (edited)' if response_edited else ''}:**")
         lines.append(_blockquote(response.strip()))
         lines.append("")
     lines.append("---")
@@ -206,6 +208,8 @@ def append_entry(slug: str, payload: dict, logs_dir: Path = LOGS_DIR) -> Path:
     if not (note.strip() or prompt.strip() or response.strip()):
         raise ValueError("at least one of note, prompt, response is required")
 
+    prompt_edited = bool(payload.get("prompt_edited")) and bool(prompt.strip())
+    response_edited = bool(payload.get("response_edited")) and bool(response.strip())
     model = payload.get("model") or None
     mode = payload.get("mode") or None
     energy_wh = payload.get("energy_wh", None)
@@ -220,7 +224,8 @@ def append_entry(slug: str, payload: dict, logs_dir: Path = LOGS_DIR) -> Path:
     if not md_path.exists():
         md_path.write_text(_header_markdown(title) + _COMMIT_TEMPLATE, encoding="utf-8", newline="")
 
-    entry_md = _entry_markdown(phase, ts, note, prompt, response, model, energy_wh)
+    entry_md = _entry_markdown(phase, ts, note, prompt, response, model, energy_wh,
+                               prompt_edited, response_edited)
     current = md_path.read_text(encoding="utf-8")
     md_path.write_text(_insert_before_commit_template(current, entry_md), encoding="utf-8", newline="")
 
@@ -231,6 +236,8 @@ def append_entry(slug: str, payload: dict, logs_dir: Path = LOGS_DIR) -> Path:
         "note": note,
         "prompt": prompt,
         "response": response,
+        "prompt_edited": prompt_edited,
+        "response_edited": response_edited,
         "model": model,
         "mode": mode,
         "energy_wh": energy_wh,

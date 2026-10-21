@@ -1245,7 +1245,11 @@ body {
     top: calc(100% + 6px);
     right: 0;
     z-index: 1000;
-    width: 300px;
+    width: 360px;
+    max-width: calc(100vw - 32px);
+    /* Prompt and response fields make it tall; scroll rather than run off-screen */
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
     background: var(--menu-bg);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
@@ -1266,6 +1270,37 @@ body {
 .log-popover-field label {
     font-size: 11px;
     color: var(--color-text-dim);
+}
+
+.log-popover-field-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.log-popover-edited {
+    color: var(--color-accent);
+}
+
+.log-popover-field-tools {
+    display: flex;
+    gap: 8px;
+}
+
+.log-popover-field-tools button {
+    border: none;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-size: 11px;
+    color: var(--color-accent);
+    cursor: pointer;
+}
+
+.log-popover-field-tools button:disabled {
+    color: var(--color-text-dim);
+    cursor: default;
 }
 
 .log-popover-field input,
