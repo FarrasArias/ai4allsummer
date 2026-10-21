@@ -223,7 +223,8 @@ popd
 echo         Frontend ready.
 
 :: ----------------------------------------------------------
-:: Step 6: Pull default AI model
+:: Step 6: Pull the AI model (one model for every mode -
+:: backend/utilities/main_model.py)
 :: ----------------------------------------------------------
 echo  [6/6] Setting up AI models...
 echo.
@@ -235,33 +236,34 @@ start /min "" ollama serve 2>nul
 :: Give it a moment to start
 timeout /t 3 /nobreak >nul 2>&1
 
-:: Check if default model is already pulled
-ollama list 2>nul | findstr /i "qwen3:1.7b" >nul 2>&1
+set "MAIN_MODEL=qwen3.8:27b"
+ollama list 2>nul | findstr /i "%MAIN_MODEL%" >nul 2>&1
 if %errorlevel% equ 0 (
-    echo         Default model (qwen3:1.7b) is already downloaded.
+    echo         Model ^(%MAIN_MODEL%^) is already downloaded.
     goto :models_done
 )
 
 echo.
-echo  The app needs at least one AI model to work.
-echo  The default model (qwen3:1.7b) is about ~1 GB to download.
+echo  Every mode of the app uses one model: %MAIN_MODEL%.
+echo  It is about 18 GB to download and needs a computer with
+echo  at least 32 GB of memory to run.
 echo.
-set /p "PULL_MODEL=  Download the default model now? (Y/n): "
+set /p "PULL_MODEL=  Download it now? (Y/n): "
 if /i "!PULL_MODEL!"=="n" (
     echo.
-    echo  Skipped. You can download models later from the Models tab in the app,
-    echo  or run:  ollama pull qwen3:1.7b
+    echo  Skipped. You can download it later from Settings in the app,
+    echo  or run:  ollama pull %MAIN_MODEL%
     goto :models_done
 )
 
 echo.
-echo         Downloading qwen3:1.7b (this may take a few minutes)...
-ollama pull qwen3:1.7b
+echo         Downloading %MAIN_MODEL% ^(this can take a while^)...
+ollama pull %MAIN_MODEL%
 if %errorlevel% equ 0 (
     echo         Model downloaded successfully.
 ) else (
     echo  [!] Model download failed. You can try again later with:
-    echo      ollama pull qwen3:1.7b
+    echo      ollama pull %MAIN_MODEL%
 )
 
 :models_done
@@ -282,22 +284,6 @@ if %errorlevel% equ 0 (
     )
 )
 
-echo.
-echo  ============================================
-echo   Optional: Additional Models
-echo  ============================================
-echo.
-echo  The app supports several modes, each with a recommended model:
-echo.
-echo    Chat (fast):      qwen2.5:14b   (~8 GB)
-echo    Chat (deep):      qwen3:14b     (~9 GB)
-echo    Code assistant:   qwen2.5-coder:7b  (~4 GB)
-echo    Image analysis:   qwen2.5vl:7b  (~5 GB)
-echo    Web search:       qwen2.5:7b    (~4 GB)
-echo.
-echo  You can download these anytime from the Models tab in the app,
-echo  or by running:  ollama pull ^<model-name^>
-echo.
 
 :: ============================================================
 ::  Done!
@@ -308,8 +294,5 @@ echo  ============================================
 echo.
 echo   To start the app:
 echo     Double-click  start.bat
-echo.
-echo   To download more models later:
-echo     ollama pull ^<model-name^>
 echo.
 pause

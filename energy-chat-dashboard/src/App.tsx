@@ -21,7 +21,6 @@ import {
     resetAgent,
     resetWeb,
     getModeDefaults,
-    loadModel,
     listChats,
     loadChat,
     saveChat,
@@ -35,7 +34,6 @@ import {
     slugifyConductTitle,
     type ChatInfo,
     type ModeDefaults,
-    type ModeKey,
     type ConductPhase,
     type InferenceMetrics,
 } from "./api";
@@ -85,36 +83,13 @@ export default function App() {
     const [fileCount, setFileCount] = useState(0);
     const [chatLoading, setChatLoading] = useState(false);
 
-    /* ── Model management ── */
-    const [autoLoadModel, setAutoLoadModel] = useState<boolean>(() => {
-        try { return localStorage.getItem("ai4all.autoLoadModel") === "true"; }
-        catch { return false; }
-    });
-
     /* Conduct tools visibility — default on, per CONDUCT_STAGE1.md §6 */
     const [showConductTools, setShowConductTools] = useState<boolean>(() => {
         try { return localStorage.getItem("ai4all.showConductTools") !== "false"; }
         catch { return true; }
     });
-    const [modelLoading, setModelLoading] = useState(false);
-    const [modelLoadTarget, setModelLoadTarget] = useState<string | null>(null);
-
-    const [fastModel, setFastModel] = useState<string | null>(() => {
-        try { return localStorage.getItem("ai4all.chat.fastModel") || null; }
-        catch { return null; }
-    });
-    const [deepModel, setDeepModel] = useState<string | null>(() => {
-        try { return localStorage.getItem("ai4all.chat.deepModel") || null; }
-        catch { return null; }
-    });
-
+    // Every mode uses the one model the server names (backend/utilities/main_model.py)
     const [modeDefaults, setModeDefaults] = useState<ModeDefaults | null>(null);
-    const [modeOverrides, setModeOverrides] = useState<Partial<Record<ModeKey, string>>>(() => {
-        try {
-            const raw = localStorage.getItem("ai4all.modeOverrides");
-            return raw ? JSON.parse(raw) : {};
-        } catch { return {}; }
-    });
 
     /* ── Study settings (hidden, accessible via Settings tab) ── */
     const persisted = loadPersistedStudySettings() || {};
@@ -153,11 +128,11 @@ export default function App() {
     });
 
     /* ── Derived model values ── */
-    const vibeModel = modeOverrides.vibe_coding || modeDefaults?.vibe_coding?.default;
-    const webModel = modeOverrides.web || modeDefaults?.web?.default;
-    const imageModel = modeOverrides.image || modeDefaults?.image?.default;
-    const imageGenModel = modeOverrides.image_gen || modeDefaults?.image_gen?.default;
-    const chatModeModel = modeOverrides.chat || modeDefaults?.chat?.default;
+    const vibeModel = modeDefaults?.vibe_coding?.default;
+    const webModel = modeDefaults?.web?.default;
+    const imageModel = modeDefaults?.image?.default;
+    const imageGenModel = modeDefaults?.image_gen?.default;
+    const chatModeModel = modeDefaults?.chat?.default;
 
     // activeModel for display: use whatever ChatPane last reported, else the default
     const activeModel = currentModel || chatModeModel;
@@ -175,11 +150,13 @@ export default function App() {
 
     /* ── Effects ── */
 
-    // Persist settings
+    // Model choices saved by earlier versions no longer apply: one model for everyone
     useEffect(() => {
-        try { localStorage.setItem("ai4all.modeOverrides", JSON.stringify(modeOverrides)); }
-        catch { /* ignore */ }
-    }, [modeOverrides]);
+        try {
+            ["ai4all.chat.fastModel", "ai4all.chat.deepModel", "ai4all.modeOverrides", "ai4all.autoLoadModel"]
+                .forEach((k) => localStorage.removeItem(k));
+        } catch { /* ignore */ }
+    }, []);
 
     // Apply theme
     useEffect(() => {
@@ -191,25 +168,6 @@ export default function App() {
         try { localStorage.setItem("ai4all.theme", theme); }
         catch { /* ignore */ }
     }, [theme]);
-
-    useEffect(() => {
-        try {
-            if (fastModel) localStorage.setItem("ai4all.chat.fastModel", fastModel);
-            else localStorage.removeItem("ai4all.chat.fastModel");
-        } catch { /* ignore */ }
-    }, [fastModel]);
-
-    useEffect(() => {
-        try {
-            if (deepModel) localStorage.setItem("ai4all.chat.deepModel", deepModel);
-            else localStorage.removeItem("ai4all.chat.deepModel");
-        } catch { /* ignore */ }
-    }, [deepModel]);
-
-    useEffect(() => {
-        try { localStorage.setItem("ai4all.autoLoadModel", String(autoLoadModel)); }
-        catch { /* ignore */ }
-    }, [autoLoadModel]);
 
     useEffect(() => {
         try { localStorage.setItem("ai4all.showConductTools", String(showConductTools)); }
@@ -227,25 +185,7 @@ export default function App() {
     // Load mode defaults from backend
     useEffect(() => {
         getModeDefaults()
-            .then((defaults) => {
-                setModeDefaults(defaults);
-                const chatDefaults = defaults.chat;
-                if (chatDefaults) {
-                    // Only adopt a preset that is actually pulled; otherwise leave it
-                    // unset so ChatPane falls back to the chat default model. A preset
-                    // persisted from an earlier run is dropped while it's not installed.
-                    if (chatDefaults.fast_installed) {
-                        if (!fastModel && chatDefaults.fast) setFastModel(chatDefaults.fast);
-                    } else if (fastModel === chatDefaults.fast) {
-                        setFastModel(null);
-                    }
-                    if (chatDefaults.thinking_installed) {
-                        if (!deepModel && chatDefaults.thinking) setDeepModel(chatDefaults.thinking);
-                    } else if (deepModel === chatDefaults.thinking) {
-                        setDeepModel(null);
-                    }
-                }
-            })
+            .then(setModeDefaults)
             .catch((err) => console.error("Failed to load mode defaults", err));
     }, []);
 
@@ -307,30 +247,7 @@ export default function App() {
         return () => clearTimeout(saveTimerRef.current);
     }, [messages]);
 
-    // Auto-preload model on tab switch (non-chat)
-    useEffect(() => {
-        if (!autoLoadModel) return;
-        let modelToLoad: string | undefined;
-        switch (tab) {
-            case "vibe": modelToLoad = vibeModel; break;
-            case "web": modelToLoad = webModel; break;
-            case "image": modelToLoad = imageModel; break;
-            case "image_gen": modelToLoad = imageGenModel; break;
-        }
-        if (modelToLoad) handleRequestModelLoad(modelToLoad);
-    }, [tab, autoLoadModel]);
-
     /* ── Handlers ── */
-
-    async function handleRequestModelLoad(model: string) {
-        // Preloading is admin-only on the server (it pins a model in memory)
-        if (!model || modelLoading || !caps.manage_models) return;
-        setModelLoading(true);
-        setModelLoadTarget(model);
-        try { await loadModel(model); }
-        catch (err) { console.error("Failed to pre-load model:", err); }
-        finally { setModelLoading(false); setModelLoadTarget(null); }
-    }
 
     function handleNewChat() {
         if (currentModel) {
@@ -620,11 +537,6 @@ export default function App() {
                             <ChatPane
                                 key={chatKey}
                                 model={chatModeModel || undefined}
-                                fastModel={fastModel || undefined}
-                                deepModel={deepModel || undefined}
-                                autoLoadModel={autoLoadModel && caps.manage_models}
-                                modelLoading={modelLoading}
-                                onRequestModelLoad={handleRequestModelLoad}
                                 allowAgent={caps.agent}
                                 onUserPrompt={(m) => setPromptMetrics((arr) => [...arr, m])}
                                 onHistoryChange={(history) => setMessages(history)}
@@ -678,24 +590,7 @@ export default function App() {
                             </div>
                             <ModelManagerPane
                                 canManageModels={caps.manage_models}
-                                fastModel={fastModel}
-                                deepModel={deepModel}
-                                onFastModelChange={setFastModel}
-                                onDeepModelChange={setDeepModel}
-                                modeDefaults={modeDefaults || undefined}
-                                modeOverrides={modeOverrides}
-                                onModeOverrideChange={(mode, model) =>
-                                    setModeOverrides((prev) => {
-                                        const next = { ...prev };
-                                        if (!model) delete next[mode];
-                                        else next[mode] = model;
-                                        return next;
-                                    })
-                                }
-                                autoLoadModel={autoLoadModel}
-                                onAutoLoadModelChange={setAutoLoadModel}
-                                modelLoading={modelLoading}
-                                modelLoadTarget={modelLoadTarget}
+                                model={chatModeModel}
                             />
 
                             {/* Conduct tools — CONDUCT_STAGE1.md §6 */}

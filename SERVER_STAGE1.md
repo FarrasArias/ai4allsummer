@@ -631,6 +631,14 @@ Rough size: steps 1–3 about 2 days, 4–5 about 3 days, 6 about 2 days, 7 abou
   a privacy rule appended in code tells the model to keep names and personal details out of queries;
   the status line shows the scrubbed query; tool arguments and the HTTP libraries' per-request URLs
   are no longer logged. The temporary owner-only lock was removed.
+- **One model for everything** (round 2, step 2): `qwen3.8:27b` (`utilities/main_model.py`, and
+  `configs/models.json`) for Chat, Deep think (same model, thinking on), Code/Agent, Image analysis,
+  Web and image-prompt writing, so energy readings compare across modes and people. The per-mode
+  pickers, Fast/Deep presets and auto-load toggle are gone from Settings, and the choices browsers
+  had saved are cleared on load. Every Ollama call passes `keep_alive` (`UNESS_KEEP_ALIVE`, default
+  60m) and the server preloads the model at start, so a reload's energy isn't charged to whoever
+  asks next. The other chat models were removed from this Mac; `nomic-embed-text` stays for
+  document search. The setup scripts download the main model (about 18 GB; needs 32 GB of memory).
 - `server/server.sh install` waits for the old service to unload before starting the new one:
   loading it too soon failed with "Bootstrap failed: 5: Input/output error" and left the server
   down until it was started again.

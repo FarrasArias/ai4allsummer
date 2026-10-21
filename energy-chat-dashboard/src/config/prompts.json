@@ -6,7 +6,7 @@
   "vibe_coding": {
     "default_user_prompt": "Help me with the following coding task:\n\n",
     "models": {
-      "qwen2.5-coder:7b": {
+      "qwen3.8:27b": {
         "default_user_prompt": "Help me write / refactor code for this task:\n\n"
       }
     }
@@ -14,7 +14,7 @@
   "web": {
     "default_user_prompt": "Use web search to answer this question (include sources if possible):\n\n",
     "models": {
-      "qwen2.5:7b": {
+      "qwen3.8:27b": {
         "default_user_prompt": "Search the web and answer (cite sources):\n\n"
       }
     }
@@ -22,7 +22,7 @@
   "image": {
     "default_user_prompt": "Describe this image in detail.",
     "models": {
-      "qwen2.5vl:7b": {
+      "qwen3.8:27b": {
         "default_user_prompt": "Describe this image in detail. If there is text, transcribe it."
       }
     }

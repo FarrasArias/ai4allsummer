@@ -8,11 +8,6 @@ type Msg = { role: "user" | "bot"; text: string; metrics?: InferenceMetrics };
 
 type Props = {
     model?: string;
-    fastModel?: string;
-    deepModel?: string;
-    autoLoadModel?: boolean;
-    modelLoading?: boolean;
-    onRequestModelLoad?: (model: string) => void;
     onUserPrompt?: (m: { ts: number; text: string; words: number; chars: number }) => void;
     onHistoryChange?: (history: Msg[]) => void;
     onModelChange?: (model: string) => void;
@@ -27,11 +22,6 @@ const IMAGE_FILE_RE = /\.(png|jpe?g|webp|gif|bmp)$/i;
 
 export default function ChatPane({
     model,
-    fastModel,
-    deepModel,
-    autoLoadModel,
-    modelLoading,
-    onRequestModelLoad,
     onUserPrompt,
     onHistoryChange,
     onModelChange,
@@ -59,9 +49,8 @@ export default function ChatPane({
     const [waitingForFirstDelta, setWaitingForFirstDelta] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-    const activeModel = thinkingMode === "deep"
-        ? (deepModel || model)
-        : (fastModel || model);
+    // Deep think is the same model with its thinking turned on
+    const activeModel = model;
 
     // Keep App in sync
     useEffect(() => { onHistoryChange?.(messages); }, [messages, onHistoryChange]);
@@ -74,11 +63,6 @@ export default function ChatPane({
         try { localStorage.setItem("ai4all.chat.messages", JSON.stringify(messages)); }
         catch { /* quota exceeded */ }
     }, [messages]);
-
-    // Auto-load model
-    useEffect(() => {
-        if (autoLoadModel && activeModel) onRequestModelLoad?.(activeModel);
-    }, [activeModel, autoLoadModel]);
 
     // Refresh server docs
     function refreshServerDocs(model?: string) {
@@ -94,7 +78,7 @@ export default function ChatPane({
         if (!activeModel) {
             setMessages((m) => [...m, {
                 role: "bot",
-                text: "No chat model configured yet. Open Settings and set a Chat model first.",
+                text: "The model isn't available yet. Try again in a moment.",
             }]);
             return;
         }
@@ -225,17 +209,6 @@ export default function ChatPane({
             {/* Input bar */}
             <div className="chat-input-container">
                 <div className="chat-input-card">
-                    {/* Loading banner */}
-                    {modelLoading && (
-                        <div className="model-loading-banner">
-                            <span className="model-loading-spinner" style={{ fontSize: 18 }}>⟳</span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 500, marginBottom: 4, fontSize: 13 }}>Loading model into GPU…</div>
-                                <div className="model-loading-bar"><div className="model-loading-bar-fill" /></div>
-                            </div>
-                        </div>
-                    )}
-
                     {/* Status text */}
                     {isStreaming && statusText && (
                         <div style={{ fontSize: 12, fontStyle: "italic", opacity: 0.7, padding: "4px 14px 0" }}>
@@ -253,7 +226,7 @@ export default function ChatPane({
                         style={{ display: "none" }}
                     />
 
-                    <ChatInput onSend={handleSend} disabled={isStreaming || !!modelLoading} />
+                    <ChatInput onSend={handleSend} disabled={isStreaming} />
 
                     {/* Bottom controls */}
                     <div className="chat-input-controls">

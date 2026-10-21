@@ -7,13 +7,14 @@ import logging
 import base64
 
 from utilities.prompt_config import get_system_prompt
+from utilities.main_model import KEEP_ALIVE, MAIN_MODEL
 
 # =============================================================================
 #  Configuration Constants
 # =============================================================================
 
 # Vision model for image analysis
-DEFAULT_MODEL = "qwen2.5vl:7b"
+DEFAULT_MODEL = MAIN_MODEL
 
 # Fallback system prompt if not overridden in configs/prompts.json
 DEFAULT_SYSTEM_PROMPT = """You are an expert image analysis assistant with advanced vision capabilities.
@@ -139,6 +140,7 @@ class ImageAnalysisChat:
         try:
             response = ollama.chat(
                 model=self.model,
+                keep_alive=KEEP_ALIVE,
                 messages=messages,
                 stream=stream,
                 options={

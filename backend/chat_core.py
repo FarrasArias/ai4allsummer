@@ -3,6 +3,8 @@
 import json
 import logging
 from pathlib import Path
+
+from utilities.main_model import KEEP_ALIVE, MAIN_MODEL
 from typing import List, Dict, Optional
 
 import ollama
@@ -26,8 +28,7 @@ class OllamaChat:
       - Approximate context tracking
     Designed to be reusable by both a CLI and a FastAPI server.
     """
-    #qwen3:30b-a3b
-    def __init__(self, model: str = "qwen3:1.7b", max_context_tokens: int = 120_000,
+    def __init__(self, model: str = MAIN_MODEL, max_context_tokens: int = 120_000,
                  rag_dir: Path = Path("rag_cache")):
         self.model = model
         self.max_context_tokens = max_context_tokens
@@ -321,6 +322,7 @@ class OllamaChat:
         try:
             response = ollama.chat(
                 model=self.model,
+                keep_alive=KEEP_ALIVE,
                 messages=messages,
                 stream=False,
                 options={"temperature": temperature, "num_predict": -1},
@@ -403,6 +405,7 @@ class OllamaChat:
         try:
             stream = ollama.chat(
                 model=self.model,
+                keep_alive=KEEP_ALIVE,
                 messages=messages,
                 stream=True,
                 think=think,

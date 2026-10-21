@@ -10,7 +10,7 @@ Usage:
     python automated_test_runner.py \
         --prompts prompts.csv \
         --output results.csv \
-        --model qwen3:14b \
+        --model qwen3.8:27b \
         --thinking fast \
         --reset-every 5
 
@@ -30,6 +30,8 @@ import sys
 import time
 from datetime import datetime
 
+from utilities.main_model import MAIN_MODEL
+
 import requests
 
 # -- Configuration ---------------------------------------------------------------
@@ -41,7 +43,7 @@ RESET_ENDPOINT  = f"{BASE_URL}/api/chat/reset"
 # The backend refuses non-GET requests without this header (CSRF guard)
 CLIENT_HEADERS  = {"X-Uness-Client": "1"}
 
-DEFAULT_MODEL       = "qwen3:14b"
+DEFAULT_MODEL       = MAIN_MODEL
 DEFAULT_THINKING    = "fast"
 DEFAULT_RESET_EVERY = 5
 DEFAULT_OUTPUT      = "test_results.csv"

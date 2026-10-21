@@ -2,6 +2,8 @@
 import ollama
 from pathlib import Path
 from typing import List, Dict, Any
+
+from utilities.main_model import KEEP_ALIVE, MAIN_MODEL
 import json
 import logging
 
@@ -12,7 +14,7 @@ from utilities.prompt_config import get_system_prompt
 # =============================================================================
 
 # Coding-specific model
-DEFAULT_MODEL = "qwen2.5-coder:7b"
+DEFAULT_MODEL = MAIN_MODEL
 
 # Fallback system prompt if not overridden in configs/prompts.json
 DEFAULT_SYSTEM_PROMPT = """You are an expert software development assistant specializing in code generation, debugging, and optimization.
@@ -204,6 +206,7 @@ class VibeCodingChat:
         try:
             response = ollama.chat(
                 model=self.model,
+                keep_alive=KEEP_ALIVE,
                 messages=messages,
                 stream=stream,
                 options={

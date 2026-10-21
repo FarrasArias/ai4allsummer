@@ -24,6 +24,7 @@ from utilities.prompt_config import get_system_prompt
 from utilities.rag_store import RagStore
 from utilities.doc_loaders import extract_document, segments_to_text
 from utilities import web_tools
+from utilities.main_model import KEEP_ALIVE, MAIN_MODEL
 
 
 # ============================================================
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # CONFIGURATION
 # ============================================================
-MODEL_NAME = "qwen2.5:7b"
+MODEL_NAME = MAIN_MODEL
 ENABLE_THINKING = False
 
 MAX_ITERATIONS = 5
@@ -236,6 +237,7 @@ class WebChatSession:
             try:
                 response = ollama_chat(
                     model=self.model,
+                    keep_alive=KEEP_ALIVE,
                     messages=call_messages,
                     tools=[web_search, web_fetch],
                     think=ENABLE_THINKING,

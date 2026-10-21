@@ -1,20 +1,20 @@
 {
   "chat": {
-    "fast": "qwen2.5:14b",
-    "thinking": "qwen3:14b",
-    "default": "qwen3:1.7b"
+    "fast": "qwen3.8:27b",
+    "thinking": "qwen3.8:27b",
+    "default": "qwen3.8:27b"
   },
   "vibe_coding": {
-    "default": "qwen2.5-coder:7b"
+    "default": "qwen3.8:27b"
   },
   "image": {
-    "default": "qwen2.5vl:7b"
+    "default": "qwen3.8:27b"
   },
   "web": {
-    "default": "qwen2.5:7b"
+    "default": "qwen3.8:27b"
   },
   "image_gen": {
-    "default": "qwen2.5:7b"
+    "default": "qwen3.8:27b"
   },
   "embedding": {
     "default": "nomic-embed-text"

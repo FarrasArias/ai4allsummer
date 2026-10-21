@@ -4,45 +4,19 @@ import {
   pullModel,
   deleteModels,
   createModel,
-  type ModeDefaults,
-  type ModeKey,
 } from "../api";
 
-
-
 type Props = {
-    fastModel: string | null;
-    deepModel: string | null;
-    onFastModelChange?: (m: string | null) => void;
-    onDeepModelChange?: (m: string | null) => void;
-    modeDefaults?: ModeDefaults;
-    modeOverrides?: Partial<Record<ModeKey, string>>;
-    onModeOverrideChange?: (mode: ModeKey, model: string | null) => void;
-    autoLoadModel?: boolean;
-    onAutoLoadModelChange?: (v: boolean) => void;
-    modelLoading?: boolean;
-    modelLoadTarget?: string | null;
-    /* Download, delete, create and preload models — admins only */
-    canManageModels?: boolean;
+  /* The one model every mode uses (backend/utilities/main_model.py) */
+  model?: string;
+  /* Download, delete and create models — at this Mac only */
+  canManageModels?: boolean;
 };
 
-export default function ModelManagerPane({
-  fastModel,
-  deepModel,
-  onFastModelChange,
-  onDeepModelChange,
-    modeDefaults,
-    modeOverrides,
-    onModeOverrideChange,
-    autoLoadModel,
-    onAutoLoadModelChange,
-    modelLoading,
-    modelLoadTarget,
-    canManageModels = false,
-}: Props) {
+export default function ModelManagerPane({ model, canManageModels = false }: Props) {
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [pulling, setPulling] = useState<string | null>(null);
+  const [pulling, setPulling] = useState(false);
 
   const [modelfileName, setModelfileName] = useState("");
   const [modelfileText, setModelfileText] = useState("FROM llama3.1\nPARAMETER temperature 0.2");
@@ -62,14 +36,14 @@ export default function ModelManagerPane({
     refresh();
   }, []);
 
-  async function handlePull(name: string) {
-    if (!name) return;
-    setPulling(name);
+  async function handlePull() {
+    if (!model) return;
+    setPulling(true);
     try {
-      await pullModel(name);
+      await pullModel(model);
       await refresh();
     } finally {
-      setPulling(null);
+      setPulling(false);
     }
   }
 
@@ -94,81 +68,7 @@ export default function ModelManagerPane({
     await refresh();
   }
 
-    function renderModeRow(label: string, key: ModeKey) {
-        if (!modeDefaults) return null;
-
-        const info = modeDefaults[key];
-        if (!info || !info.default) return null;
-
-        const override = modeOverrides?.[key];
-        const effectiveModel = override || info.default;
-        const defaultInstalled = models.includes(info.default);
-        const isPulling = pulling === info.default;
-
-        return (
-            <div
-                key={key}
-                style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    justifyContent: "space-between",
-                    gap: 8,
-                    padding: "4px 0",
-                }}
-            >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500 }}>{label}</div>
-                    <div style={{ fontSize: 12, opacity: 0.8 }}>
-                        Default: {info.default}
-                    </div>
-
-                    <label style={{ fontSize: 12, display: "block", marginTop: 4 }}>
-                        Active model
-                        <select
-                            value={override ?? ""}
-                            onChange={(e) =>
-                                onModeOverrideChange?.(
-                                    key,
-                                    e.target.value ? e.target.value : null,
-                                )
-                            }
-                            style={{ display: "block", width: "100%", marginTop: 4 }}
-                        >
-                            <option value="">
-                                Use default ({info.default})
-                            </option>
-                            {models.map((m) => (
-                                <option key={m} value={m}>
-                                    {m}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-
-                    <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
-                        Currently using: {effectiveModel}
-                    </div>
-                </div>
-
-                <div style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-                    {defaultInstalled ? (
-                        <span style={{ opacity: 0.8 }}>Default installed</span>
-                    ) : !canManageModels ? (
-                        <span style={{ opacity: 0.8 }}>Not installed</span>
-                    ) : (
-                        <button
-                            type="button"
-                            onClick={() => handlePull(info.default)}
-                            disabled={isPulling}
-                        >
-                            {isPulling ? "Downloading…" : "Download default"}
-                        </button>
-                    )}
-                </div>
-            </div>
-        );
-    }
-
+  const installed = !!model && models.includes(model);
 
   return (
     <div
@@ -179,150 +79,56 @@ export default function ModelManagerPane({
         alignContent: "flex-start",
       }}
     >
-      {/* Model Loading — preloading is admin-only */}
-      {canManageModels && (
-      <section className="panel">
-        <div className="panel-body" style={{ display: "grid", gap: 10 }}>
-          <h3 style={{ margin: 0 }}>Model Loading</h3>
-          <p style={{ fontSize: 12, margin: 0 }}>
-            Choose when models are loaded into GPU memory.
-          </p>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {/* Toggle */}
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", fontSize: 13 }}>
-              <input
-                type="checkbox"
-                checked={autoLoadModel ?? false}
-                onChange={(e) => onAutoLoadModelChange?.(e.target.checked)}
-                style={{ marginTop: 2, flexShrink: 0 }}
-              />
-              <div>
-                <strong>Auto-load on switch</strong>
-                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
-                  When enabled: the model is pre-loaded into GPU as soon as you switch
-                  thinking mode or tab — your first prompt responds immediately.
-                  <br />
-                  When disabled (default): the model loads on your first prompt — you
-                  will see a "Loading model…" indicator while it warms up.
-                </div>
-              </div>
-            </label>
-
-            {/* Status */}
-            {modelLoading && modelLoadTarget && (
-              <div className="model-loading-banner">
-                <span className="model-loading-spinner" style={{ fontSize: 18 }}>⟳</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 500 }}>Loading {modelLoadTarget}…</div>
-                  <div className="model-loading-bar">
-                    <div className="model-loading-bar-fill" />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-      )}
-
-      {/* Installed models */}
+      {/* The model */}
       <section className="panel">
         <div className="panel-body" style={{ display: "grid", gap: 8 }}>
+          <h3 style={{ margin: 0 }}>Model</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <strong style={{ fontSize: 14 }}>{model ?? "Loading…"}</strong>
+            {model && !loading && (
+              installed ? (
+                <span style={{ fontSize: 12, opacity: 0.8 }}>Installed</span>
+              ) : canManageModels ? (
+                <button type="button" onClick={handlePull} disabled={pulling}>
+                  {pulling ? "Downloading…" : "Download"}
+                </button>
+              ) : (
+                <span style={{ fontSize: 12, opacity: 0.8 }}>Not installed yet</span>
+              )
+            )}
+          </div>
+          <p style={{ fontSize: 12, margin: 0, opacity: 0.8 }}>
+            Every mode uses this one model, so energy readings can be compared across modes and
+            people. <strong>Deep think</strong> in Chat is the same model with its thinking turned on.
+            It stays loaded in memory, so prompts don't wait for it to start.
+          </p>
+        </div>
+      </section>
+
+      {/* Advanced: other installed models, create / delete — at this Mac only */}
+      {canManageModels && (
+      <section className="panel">
+        <div className="panel-body" style={{ display: "grid", gap: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h3 style={{ margin: 0 }}>Installed models</h3>
+            <h3 style={{ margin: 0 }}>Advanced</h3>
             <button type="button" onClick={refresh} disabled={loading}>
               {loading ? "Refreshing…" : "Refresh"}
             </button>
           </div>
-          {models.length === 0 && <div>No models found yet.</div>}
-          {models.length > 0 && (
-            <ul style={{ margin: 0, paddingLeft: 16 }}>
-              {models.map((m) => (
-                <li key={m} style={{ fontSize: 13 }}>
-                  {m}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
 
-      {/* Mode defaults */}
-      <section className="panel">
-        <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-          <h3 style={{ margin: 0 }}>Mode defaults</h3>
-          <p style={{ fontSize: 12, margin: 0 }}>
-            Each mode has a backend-defined default model.
-            {canManageModels
-              ? " If a model is not installed yet, use the Download button to pull it into Ollama."
-              : " Models that aren't installed can be added by an admin."}
-          </p>
-                  {modeDefaults ? (
-                      <div style={{ display: "grid", gap: 4 }}>
-                          {renderModeRow("Chat (general)", "chat")}
-                          {renderModeRow("Vibe Coding", "vibe_coding")}
-                          {renderModeRow("Image Analysis", "image")}
-                          {renderModeRow("Image Generation", "image_gen")}
-                          {renderModeRow("Web", "web")}
-                      </div>
-                  ) : (
-                      <div style={{ fontSize: 12, opacity: 0.8 }}>
-                          Loading mode defaults from backend…
-                      </div>
-                  )}
-        </div>
-      </section>
-
-      {/* Chat presets */}
-      <section className="panel">
-        <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-          <h3 style={{ margin: 0 }}>Chat presets</h3>
-          <p style={{ fontSize: 12, margin: 0 }}>
-            Map installed models to <strong>Fast think</strong> and <strong>Deep think</strong>.
-            Chat will use these presets when you switch thinking mode.
-          </p>
-          <div style={{ display: "grid", gap: 8, maxWidth: 360 }}>
-            <label style={{ fontSize: 12 }}>
-              Fast think
-              <select
-                value={fastModel || ""}
-                onChange={(e) => onFastModelChange?.(e.target.value || null)}
-                style={{ display: "block", width: "100%", marginTop: 4 }}
-              >
-                <option value="">(not set)</option>
+          <div style={{ display: "grid", gap: 4 }}>
+            <div style={{ fontSize: 12 }}>Installed in Ollama</div>
+            {models.length === 0 && <div style={{ fontSize: 13 }}>No models found yet.</div>}
+            {models.length > 0 && (
+              <ul style={{ margin: 0, paddingLeft: 16 }}>
                 {models.map((m) => (
-                  <option key={m} value={m}>
+                  <li key={m} style={{ fontSize: 13 }}>
                     {m}
-                  </option>
+                  </li>
                 ))}
-              </select>
-            </label>
-
-            <label style={{ fontSize: 12 }}>
-              Deep think
-              <select
-                value={deepModel || ""}
-                onChange={(e) => onDeepModelChange?.(e.target.value || null)}
-                style={{ display: "block", width: "100%", marginTop: 4 }}
-              >
-                <option value="">(not set)</option>
-                {models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </label>
+              </ul>
+            )}
           </div>
-        </div>
-      </section>
-
-      {/* Advanced: create / delete — admins only */}
-      {canManageModels && (
-      <section className="panel">
-        <div className="panel-body" style={{ display: "grid", gap: 12 }}>
-          <h3 style={{ margin: 0 }}>Advanced</h3>
 
           <div style={{ display: "grid", gap: 4 }}>
             <label style={{ fontSize: 12 }}>

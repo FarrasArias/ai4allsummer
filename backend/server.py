@@ -20,6 +20,7 @@ def _load_dotenv():
 
 _load_dotenv()
 
+from utilities.main_model import KEEP_ALIVE, MAIN_MODEL
 from image_v1 import DEFAULT_MODEL as IMAGE_DEFAULT_MODEL
 from vibe_coding import DEFAULT_MODEL as VIBE_DEFAULT_MODEL, VibeCodingChat
 from web_chat import DEFAULT_MODEL as WEB_DEFAULT_MODEL, WebChatSession
@@ -34,11 +35,11 @@ def _load_model_config():
     except (FileNotFoundError, json.JSONDecodeError) as e:
         print(f"Warning: Could not load models.json config: {e}")
         return {
-            "chat": {"fast": "qwen2.5:14b", "thinking": "qwen3:14b", "default": "qwen3:1.7b"},
-            "vibe_coding": {"default": "qwen2.5-coder:7b"},
-            "image": {"default": "qwen2.5vl:7b"},
-            "web": {"default": "qwen2.5:7b"},
-            "image_gen": {"default": "qwen2.5:7b"}
+            "chat": {"fast": MAIN_MODEL, "thinking": MAIN_MODEL, "default": MAIN_MODEL},
+            "vibe_coding": {"default": MAIN_MODEL},
+            "image": {"default": MAIN_MODEL},
+            "web": {"default": MAIN_MODEL},
+            "image_gen": {"default": MAIN_MODEL}
         }
 
 # Defer loading until after imports
@@ -51,7 +52,7 @@ def get_model_config():
     return _MODEL_CONFIG
 
 # Legacy constant for backwards compatibility
-CHAT_DEFAULT_MODEL = "qwen3:1.7b"  # Overridden by config if available
+CHAT_DEFAULT_MODEL = MAIN_MODEL  # Overridden by config if available
 
 import os
 import io
@@ -156,6 +157,17 @@ def _user_dir(path) -> str:
     return str(path)
 
 
+def _warm_main_model() -> None:
+    try:
+        requests.post(
+            "http://127.0.0.1:11434/api/generate",
+            json={"model": MAIN_MODEL, "prompt": "", "keep_alive": KEEP_ALIVE, "stream": False},
+            timeout=180,
+        )
+    except Exception as e:
+        print(f"Couldn't preload {MAIN_MODEL}: {e}")
+
+
 @asynccontextmanager
 async def _lifespan(_app):
     # Sync endpoints, and model streams while they generate, each borrow a
@@ -163,6 +175,8 @@ async def _lifespan(_app):
     anyio.to_thread.current_default_thread_limiter().total_tokens = 200
     accounts.init()
     energy.start_sampler()
+    # Load the main model now, so the first person to ask isn't charged for it
+    threading.Thread(target=_warm_main_model, name="warm-main-model", daemon=True).start()
     yield
 
 
@@ -846,6 +860,7 @@ def analyze_image(
                     "prompt": prompt,
                     "images": [b64],
                     "stream": True,
+                    "keep_alive": KEEP_ALIVE,
                 },
                 stream=True,
                 timeout=60,
@@ -1376,7 +1391,7 @@ def test_prompt_files():
 def test_run(
     prompts_file: str = Form(...),
     output_file: str = Form("test_results.csv"),
-    model: str = Form("qwen3:1.7b"),
+    model: str = Form(MAIN_MODEL),
     thinking_mode: str = Form("fast"),
     reset_every: int = Form(5),
 ):

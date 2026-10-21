@@ -23,12 +23,13 @@ from claw_agent import (
 )
 from claw_agent.agent_types import BudgetConfig
 from claw_agent.agent_tools import default_tool_registry
+from utilities.main_model import MAIN_MODEL
 
 # Ollama exposes an OpenAI-compatible API at this URL
 OLLAMA_OPENAI_BASE = "http://127.0.0.1:11434/v1"
 
 # Default coding model (should match what's installed in Ollama)
-DEFAULT_AGENT_MODEL = "qwen2.5-coder:7b"
+DEFAULT_AGENT_MODEL = MAIN_MODEL
 
 # Maximum agent turns per prompt to prevent runaway loops
 MAX_AGENT_TURNS = 20

@@ -141,7 +141,8 @@ cd "$ROOT"
 echo "        Frontend ready."
 
 # ----------------------------------------------------------
-# Step 6: Pull default AI model
+# Step 6: Pull the AI model (one model for every mode —
+# backend/utilities/main_model.py)
 # ----------------------------------------------------------
 echo "  [6/6] Setting up AI models..."
 echo ""
@@ -152,23 +153,24 @@ ollama serve &>/dev/null &
 OLLAMA_PID=$!
 sleep 3
 
-# Check if default model is already pulled
-if ollama list 2>/dev/null | grep -qi "qwen3:1.7b"; then
-    echo "        Default model (qwen3:1.7b) is already downloaded."
+MAIN_MODEL="qwen3.8:27b"
+if ollama list 2>/dev/null | grep -qi "$MAIN_MODEL"; then
+    echo "        Model ($MAIN_MODEL) is already downloaded."
 else
     echo ""
-    echo "  The app needs at least one AI model to work."
-    echo "  The default model (qwen3:1.7b) is about ~1 GB to download."
+    echo "  Every mode of the app uses one model: $MAIN_MODEL."
+    echo "  It is about 18 GB to download and needs a computer with"
+    echo "  at least 32 GB of memory to run."
     echo ""
-    read -p "  Download the default model now? (Y/n): " PULL_MODEL
+    read -p "  Download it now? (Y/n): " PULL_MODEL
     if [ "$(echo "$PULL_MODEL" | tr '[:upper:]' '[:lower:]')" != "n" ]; then
         echo ""
-        echo "        Downloading qwen3:1.7b (this may take a few minutes)..."
-        ollama pull qwen3:1.7b || echo "  [!] Model download failed. Try: ollama pull qwen3:1.7b"
+        echo "        Downloading $MAIN_MODEL (this can take a while)..."
+        ollama pull "$MAIN_MODEL" || echo "  [!] Model download failed. Try: ollama pull $MAIN_MODEL"
     else
         echo ""
-        echo "  Skipped. You can download models later from the Models tab in the app,"
-        echo "  or run:  ollama pull qwen3:1.7b"
+        echo "  Skipped. You can download it later from Settings in the app,"
+        echo "  or run:  ollama pull $MAIN_MODEL"
     fi
 fi
 
@@ -186,22 +188,6 @@ fi
 # Kill the Ollama we started (user will start it properly with start.sh)
 kill $OLLAMA_PID 2>/dev/null || true
 
-echo ""
-echo "  ============================================"
-echo "   Optional: Additional Models"
-echo "  ============================================"
-echo ""
-echo "  The app supports several modes, each with a recommended model:"
-echo ""
-echo "    Chat (fast):      qwen2.5:14b   (~8 GB)"
-echo "    Chat (deep):      qwen3:14b     (~9 GB)"
-echo "    Code assistant:   qwen2.5-coder:7b  (~4 GB)"
-echo "    Image analysis:   qwen2.5vl:7b  (~5 GB)"
-echo "    Web search:       qwen2.5:7b    (~4 GB)"
-echo ""
-echo "  You can download these anytime from the Models tab in the app,"
-echo "  or by running:  ollama pull <model-name>"
-echo ""
 
 # ----------------------------------------------------------
 # macOS only: energy metering via powermetrics
@@ -246,7 +232,4 @@ echo "  ============================================"
 echo ""
 echo "   To start the app:"
 echo "     ./start.sh"
-echo ""
-echo "   To download more models later:"
-echo "     ollama pull <model-name>"
 echo ""

@@ -6,6 +6,8 @@ import base64
 import json
 import logging
 import requests
+
+from utilities.main_model import KEEP_ALIVE, MAIN_MODEL
 from typing import Dict, Any, Optional
 
 import ollama
@@ -16,7 +18,7 @@ from utilities.prompt_config import get_system_prompt
 # =============================================================================
 
 # Ollama model used for prompt enhancement (refining user text into SD prompts)
-DEFAULT_ENHANCER_MODEL = "qwen2.5:7b"
+DEFAULT_ENHANCER_MODEL = MAIN_MODEL
 
 # Stable Diffusion WebUI API base URL (AUTOMATIC1111 / Forge / etc.)
 SD_API_BASE = "http://127.0.0.1:7860"
@@ -78,6 +80,7 @@ class ImageGenEngine:
         try:
             response = ollama.chat(
                 model=self.enhancer_model,
+                keep_alive=KEEP_ALIVE,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},

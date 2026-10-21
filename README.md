@@ -19,7 +19,7 @@ The setup script checks for and installs all prerequisites:
 - **Ollama** — downloads and installs automatically if missing
 - Sets up the backend (Python virtual environment + packages)
 - Sets up the frontend (npm packages)
-- Downloads the default AI model (~1 GB)
+- Downloads the AI model (about 18 GB)
 
 You only need to run setup once. It's safe to re-run if something goes wrong.
 
@@ -34,17 +34,17 @@ To stop everything, close the "AI4ALL" window.
 
 ## Available Modes
 
-| Mode | Description | Default Model |
-|------|-------------|---------------|
-| Chat | General conversation with fast/deep thinking modes | qwen3:1.7b |
-| Vibe Coding | Code assistant for writing and debugging code | qwen2.5-coder:7b |
-| Web | Chat with web search capabilities | qwen2.5:7b |
-| Image Analysis | Upload and analyze images | qwen2.5vl:7b |
+| Mode | Description |
+|------|-------------|
+| Chat | General conversation. **Deep think** turns on the model's thinking before it answers |
+| Vibe Coding | Code assistant for writing and debugging code |
+| Web | Chat with web search |
+| Image Analysis | Upload and analyze images |
 
-You can download additional models from the **Models** tab in the app, or from the command line:
-```
-ollama pull <model-name>
-```
+Every mode uses one model, **qwen3.8:27b**, so energy readings can be compared across modes
+and people. It's set in `backend/utilities/main_model.py` and `backend/configs/models.json`,
+and stays loaded in memory for an hour after the last prompt (`UNESS_KEEP_ALIVE` in
+`backend/.env`). Document search also uses the small `nomic-embed-text` model.
 
 ## Manual Setup (Developers)
 
@@ -69,13 +69,14 @@ npm run dev
 ### Ollama
 ```bash
 ollama serve
-ollama pull qwen3:1.7b
+ollama pull qwen3.8:27b
+ollama pull nomic-embed-text
 ```
 
 ## Requirements
 
 - Windows 10 or 11
-- ~4 GB free disk space (for the default model + dependencies)
+- At least 32 GB of memory and ~22 GB free disk space (for the model + dependencies)
 - NVIDIA GPU (optional — enables GPU power monitoring in the energy dashboard)
 
 ## Running as a server (macOS)
